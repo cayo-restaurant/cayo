@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    direction: rtl;
+  }
+
+  body {
+    @apply bg-cayo-dark text-cayo-cream;
+  }
+
+  ::selection {
+    @apply bg-cayo-copper/30 text-cayo-cream;
+  }
+}
+
+@layer components {
+  .section-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+}
