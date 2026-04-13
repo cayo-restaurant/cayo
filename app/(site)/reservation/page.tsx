@@ -1,47 +1,68 @@
 'use client'
 
 import { useState } from 'react'
-import Button from '@/components/ui/Button'
-import type { Metadata } from 'next'
+import Link from 'next/link'
+import Image from 'next/image'
+import cayoLogo from '../../../cayo_brand_page_005.png'
 
+// Time slots: 19:00 to 22:30, every 15 min
 function generateTimeSlots() {
   const slots: string[] = []
-  for (let h = 12; h <= 22; h++) {
-    slots.push(`${h.toString().padStart(2, '0')}:00`)
-    if (h < 22 || h === 22) {
-      slots.push(`${h.toString().padStart(2, '0')}:30`)
+  for (let h = 19; h <= 22; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      if (h === 22 && m > 30) break
+      slots.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
     }
   }
-  slots.push('23:00')
   return slots
 }
 
 const timeSlots = generateTimeSlots()
 
-function getTomorrowDate() {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().split('T')[0]
+// Generate next 60 days as options with Hebrew day names
+function generateDateOptions() {
+  const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
+  const months = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
+  const options: { value: string; label: string }[] = []
+  const today = new Date()
+  for (let i = 0; i < 60; i++) {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    const value = d.toISOString().split('T')[0]
+    const dayName = dayNames[d.getDay()]
+    const label = i === 0
+      ? `היום, ${dayName} ${d.getDate()} ${months[d.getMonth()]}`
+      : i === 1
+      ? `מחר, ${dayName} ${d.getDate()} ${months[d.getMonth()]}`
+      : `יום ${dayName}, ${d.getDate()} ${months[d.getMonth()]}`
+    options.push({ value, label })
+  }
+  return options
 }
+
+const dateOptions = generateDateOptions()
 
 interface FormErrors {
   name?: string
-  phone?: string
-  email?: string
   date?: string
   time?: string
+  area?: string
   guests?: string
+  phone?: string
+  email?: string
+  terms?: string
 }
 
 export default function ReservationPage() {
   const [form, setForm] = useState({
     name: '',
-    phone: '',
-    email: '',
     date: '',
     time: '',
-    guests: 2,
-    notes: '',
+    area: '',
+    guests: 0,
+    phone: '',
+    email: '',
+    terms: false,
   })
   const [errors, setErrors] = useState<FormErrors>({})
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -49,12 +70,14 @@ export default function ReservationPage() {
 
   function validate(): boolean {
     const e: FormErrors = {}
-    if (!form.name || form.name.length < 2) e.name = 'נא להזין שם מלא'
-    if (!form.phone || !/^0[0-9]{9}$/.test(form.phone)) e.phone = 'מספר טלפון לא תקין (10 ספרות, מתחיל ב-0)'
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'כתובת אימייל לא תקינה'
-    if (!form.date) e.date = 'נא לבחור תאריך'
+    if (!form.name || form.name.trim().length < 2) e.name = 'נא להזין שם'
+    if (!form.date) e.date = 'נא לבחור יום'
     if (!form.time) e.time = 'נא לבחור שעה'
-    if (!form.guests || form.guests < 1 || form.guests > 20) e.guests = 'מספר סועדים חייב להיות בין 1 ל-20'
+    if (!form.area) e.area = 'נא לבחור אזור'
+    if (!form.guests || form.guests < 1 || form.guests > 10) e.guests = 'מספר סועדים חייב להיות בין 1 ל-10'
+    if (!form.phone || !/^0[0-9]{9}$/.test(form.phone)) e.phone = 'מספר טלפון לא תקין'
+    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'כתובת אימייל לא תקינה'
+    if (!form.terms) e.terms = 'יש לאשר את תנאי השימוש והדיוור'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -83,170 +106,206 @@ export default function ReservationPage() {
     }
   }
 
+  const fieldClass = 'w-full bg-white border-2 border-cayo-burgundy/20 rounded-xl px-4 py-3.5 text-cayo-burgundy font-bold text-center placeholder:text-cayo-burgundy/30 placeholder:font-bold focus:outline-none focus:border-cayo-burgundy transition-colors'
+
   if (status === 'success') {
+    const selectedDate = dateOptions.find(d => d.value === form.date)
     return (
-      <div className="min-h-screen flex items-center justify-center section-padding">
+      <div className="min-h-screen bg-white flex items-center justify-center px-6">
         <div className="max-w-md w-full text-center">
-          <div className="bg-cayo-burgundy/40 border border-cayo-teal/30 rounded-2xl p-8">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-cayo-teal/20 flex items-center justify-center">
-              <svg className="w-8 h-8 text-cayo-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-cayo-cream mb-2">ההזמנה נקלטה!</h2>
-            <p className="text-cayo-cream/60 mb-6">תודה {form.name}, נשמח לראות אותך</p>
-            <div className="bg-cayo-dark/50 rounded-xl p-4 text-right space-y-2 text-sm">
-              <p className="text-cayo-cream/70"><span className="text-cayo-copper">תאריך:</span> {form.date}</p>
-              <p className="text-cayo-cream/70"><span className="text-cayo-copper">שעה:</span> {form.time}</p>
-              <p className="text-cayo-cream/70"><span className="text-cayo-copper">סועדים:</span> {form.guests}</p>
-            </div>
-            {form.email && (
-              <p className="mt-4 text-sm text-cayo-cream/50">אישור נשלח ל-{form.email}</p>
-            )}
+          <div className="w-20 h-20 mx-auto mb-8 rounded-full bg-cayo-burgundy flex items-center justify-center">
+            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
           </div>
+          <h2 className="text-3xl font-black text-cayo-burgundy mb-3">ההזמנה נקלטה</h2>
+          <p className="text-cayo-burgundy/60 mb-8">נשמח לראות אותך ב-CAYO</p>
+          <div className="border-2 border-cayo-burgundy/15 rounded-2xl p-6 text-right space-y-3 text-sm mb-8">
+            <div className="flex justify-between">
+              <span className="text-cayo-burgundy font-bold">{selectedDate?.label}</span>
+              <span className="text-cayo-burgundy/50">יום</span>
+            </div>
+            <div className="h-px bg-cayo-burgundy/10" />
+            <div className="flex justify-between">
+              <span className="text-cayo-burgundy font-bold">{form.time}</span>
+              <span className="text-cayo-burgundy/50">שעה</span>
+            </div>
+            <div className="h-px bg-cayo-burgundy/10" />
+            <div className="flex justify-between">
+              <span className="text-cayo-burgundy font-bold">{form.guests}</span>
+              <span className="text-cayo-burgundy/50">סועדים</span>
+            </div>
+          </div>
+          <Link
+            href="/"
+            className="inline-block px-10 py-3.5 bg-cayo-burgundy text-white font-bold rounded-full hover:bg-cayo-burgundy/90 transition-colors"
+          >
+            חזרה לעמוד הראשי
+          </Link>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen py-12 section-padding">
-      <div className="max-w-lg mx-auto">
-        <h1 className="text-4xl sm:text-5xl font-bold text-center text-cayo-cream mb-2">
+    <div className="min-h-screen bg-white py-10 sm:py-14 px-6">
+      <div className="max-w-md mx-auto">
+        {/* Logo */}
+        <Link href="/" className="block mb-10">
+          <div className="w-[180px] mx-auto overflow-hidden">
+            <Image
+              src={cayoLogo}
+              alt="CAYO"
+              className="w-full h-auto scale-[1.35]"
+              priority
+            />
+          </div>
+        </Link>
+
+        {/* Title */}
+        <h1 className="text-3xl sm:text-4xl font-black text-cayo-burgundy text-center mb-2">
           הזמנת מקום
         </h1>
-        <p className="text-cayo-cream/50 text-center mb-10">
-          שמרו את המקום שלכם ב-CAYO
+        <p className="text-cayo-burgundy/50 text-center text-sm mb-10">
+          מלאו את הפרטים ונשמור לכם שולחן
         </p>
 
-        <form onSubmit={handleSubmit} className="bg-cayo-burgundy/30 border border-cayo-cream/10 rounded-2xl p-6 sm:p-8 space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {/* Name */}
           <div>
-            <label htmlFor="name" className="block text-sm text-cayo-cream/80 mb-1.5">שם מלא *</label>
             <input
               id="name"
               type="text"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream placeholder:text-cayo-cream/30 focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors"
-              placeholder="הזינו את שמכם"
+              className={fieldClass}
+              placeholder="שם מלא"
             />
-            {errors.name && <p className="mt-1 text-sm text-red-400">{errors.name}</p>}
+            {errors.name && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.name}</p>}
+          </div>
+
+          {/* Day */}
+          <div>
+            <select
+              id="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              className={fieldClass}
+            >
+              <option value="">בחרו יום</option>
+              {dateOptions.map((d) => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </select>
+            {errors.date && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.date}</p>}
+          </div>
+
+          {/* Time */}
+          <div>
+            <select
+              id="time"
+              value={form.time}
+              onChange={(e) => setForm({ ...form, time: e.target.value })}
+              className={fieldClass}
+            >
+              <option value="">בחרו שעה</option>
+              {timeSlots.map((slot) => (
+                <option key={slot} value={slot}>{slot}</option>
+              ))}
+            </select>
+            {errors.time && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.time}</p>}
+          </div>
+
+          {/* Guests */}
+          <div>
+            <select
+              id="guests"
+              value={form.guests || ''}
+              onChange={(e) => setForm({ ...form, guests: Number(e.target.value) })}
+              className={fieldClass}
+            >
+              <option value="">מספר אנשים</option>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n} {n === 1 ? 'סועד' : 'סועדים'}
+                </option>
+              ))}
+            </select>
+            {errors.guests && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.guests}</p>}
+          </div>
+
+          {/* Area */}
+          <div>
+            <select
+              id="area"
+              value={form.area}
+              onChange={(e) => setForm({ ...form, area: e.target.value })}
+              className={fieldClass}
+            >
+              <option value="">אזור</option>
+              <option value="bar">בר</option>
+              <option value="table">שולחן</option>
+            </select>
+            {errors.area && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.area}</p>}
           </div>
 
           {/* Phone */}
           <div>
-            <label htmlFor="phone" className="block text-sm text-cayo-cream/80 mb-1.5">טלפון *</label>
             <input
               id="phone"
               type="tel"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream placeholder:text-cayo-cream/30 focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors"
-              placeholder="0501234567"
-              dir="ltr"
+              className={fieldClass}
+              placeholder="מספר טלפון"
             />
-            {errors.phone && <p className="mt-1 text-sm text-red-400">{errors.phone}</p>}
+            {errors.phone && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.phone}</p>}
           </div>
 
           {/* Email */}
           <div>
-            <label htmlFor="email" className="block text-sm text-cayo-cream/80 mb-1.5">אימייל</label>
             <input
               id="email"
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream placeholder:text-cayo-cream/30 focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors"
-              placeholder="example@email.com"
-              dir="ltr"
+              className={fieldClass}
+              placeholder="אימייל"
             />
-            {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email}</p>}
+            {errors.email && <p className="mt-1.5 text-sm text-cayo-red text-center">{errors.email}</p>}
           </div>
 
-          {/* Date & Time */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="date" className="block text-sm text-cayo-cream/80 mb-1.5">תאריך *</label>
+          {/* Terms checkbox */}
+          <div className="pt-2">
+            <label className="flex items-start gap-3 cursor-pointer group">
               <input
-                id="date"
-                type="date"
-                value={form.date}
-                min={getTomorrowDate()}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors"
+                type="checkbox"
+                checked={form.terms}
+                onChange={(e) => setForm({ ...form, terms: e.target.checked })}
+                className="mt-1 w-5 h-5 rounded border-2 border-cayo-burgundy/30 text-cayo-burgundy focus:ring-cayo-burgundy focus:ring-offset-0 cursor-pointer accent-cayo-burgundy shrink-0"
               />
-              {errors.date && <p className="mt-1 text-sm text-red-400">{errors.date}</p>}
-            </div>
-            <div>
-              <label htmlFor="time" className="block text-sm text-cayo-cream/80 mb-1.5">שעה *</label>
-              <select
-                id="time"
-                value={form.time}
-                onChange={(e) => setForm({ ...form, time: e.target.value })}
-                className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors"
-              >
-                <option value="">בחרו שעה</option>
-                {timeSlots.map((slot) => (
-                  <option key={slot} value={slot}>{slot}</option>
-                ))}
-              </select>
-              {errors.time && <p className="mt-1 text-sm text-red-400">{errors.time}</p>}
-            </div>
-          </div>
-
-          {/* Guests */}
-          <div>
-            <label htmlFor="guests" className="block text-sm text-cayo-cream/80 mb-1.5">מספר סועדים *</label>
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, guests: Math.max(1, form.guests - 1) })}
-                className="w-10 h-10 rounded-lg bg-cayo-dark/50 border border-cayo-cream/20 text-cayo-cream hover:border-cayo-copper transition-colors flex items-center justify-center text-xl"
-              >
-                −
-              </button>
-              <span className="text-2xl font-bold text-cayo-cream min-w-[3rem] text-center">
-                {form.guests}
+              <span className="text-sm text-cayo-burgundy/70 leading-relaxed">
+                קראתי ואני מסכים/ה ל<a href="#" className="underline font-bold hover:text-cayo-burgundy">תנאי השימוש</a> ולקבלת עדכונים ודיוור מ-CAYO
               </span>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, guests: Math.min(20, form.guests + 1) })}
-                className="w-10 h-10 rounded-lg bg-cayo-dark/50 border border-cayo-cream/20 text-cayo-cream hover:border-cayo-copper transition-colors flex items-center justify-center text-xl"
-              >
-                +
-              </button>
-            </div>
-            {errors.guests && <p className="mt-1 text-sm text-red-400">{errors.guests}</p>}
+            </label>
+            {errors.terms && <p className="mt-1.5 text-sm text-cayo-red">{errors.terms}</p>}
           </div>
 
-          {/* Notes */}
-          <div>
-            <label htmlFor="notes" className="block text-sm text-cayo-cream/80 mb-1.5">הערות</label>
-            <textarea
-              id="notes"
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              rows={3}
-              className="w-full bg-cayo-dark/50 border border-cayo-cream/20 rounded-lg px-4 py-3 text-cayo-cream placeholder:text-cayo-cream/30 focus:outline-none focus:border-cayo-copper focus:ring-1 focus:ring-cayo-copper/50 transition-colors resize-none"
-              placeholder="אלרגיות, אירוע מיוחד, העדפת ישיבה..."
-            />
-          </div>
-
+          {/* Error message */}
           {status === 'error' && (
-            <div className="bg-red-900/30 border border-red-400/30 rounded-lg p-4 text-red-400 text-sm">
+            <div className="bg-cayo-red/10 border-2 border-cayo-red/20 rounded-xl p-4 text-cayo-red text-sm">
               {errorMessage}
             </div>
           )}
 
-          <Button
+          {/* Submit */}
+          <button
             type="submit"
-            size="lg"
-            className="w-full"
             disabled={status === 'loading'}
+            className="w-full py-4 bg-cayo-burgundy text-white font-black text-lg rounded-full hover:bg-cayo-burgundy/90 transition-all hover:shadow-lg hover:shadow-cayo-burgundy/30 disabled:opacity-50 mt-4"
           >
             {status === 'loading' ? 'שולח...' : 'שלחו הזמנה'}
-          </Button>
+          </button>
         </form>
       </div>
     </div>

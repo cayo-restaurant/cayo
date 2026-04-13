@@ -14,18 +14,18 @@ export default function Button({
   children,
   ...props
 }: ButtonProps) {
-  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed'
+  const base = 'inline-flex items-center justify-center font-bold rounded-full transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed'
 
   const variants = {
-    primary: 'bg-cayo-copper text-cayo-cream hover:bg-cayo-copper/80 active:scale-[0.98]',
-    secondary: 'border-2 border-cayo-cream/30 text-cayo-cream hover:border-cayo-copper hover:text-cayo-copper',
-    ghost: 'text-cayo-cream hover:text-cayo-copper',
+    primary: 'bg-cayo-orange text-cayo-cream hover:bg-cayo-orange/85 active:scale-[0.97] hover:shadow-lg hover:shadow-cayo-orange/20',
+    secondary: 'border-2 border-cayo-teal text-cayo-teal hover:bg-cayo-teal hover:text-cayo-cream',
+    ghost: 'text-cayo-cream hover:text-cayo-orange',
   }
 
   const sizes = {
-    sm: 'px-4 py-2 text-sm',
-    md: 'px-6 py-3 text-base',
-    lg: 'px-8 py-4 text-lg',
+    sm: 'px-5 py-2 text-sm',
+    md: 'px-7 py-3 text-base',
+    lg: 'px-9 py-4 text-lg',
   }
 
   return (

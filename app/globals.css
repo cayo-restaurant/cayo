@@ -8,11 +8,11 @@
   }
 
   body {
-    @apply bg-cayo-dark text-cayo-cream;
+    @apply bg-white text-cayo-burgundy;
   }
 
   ::selection {
-    @apply bg-cayo-copper/30 text-cayo-cream;
+    @apply bg-cayo-teal/20 text-cayo-burgundy;
   }
 }
 

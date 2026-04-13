@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Heebo } from 'next/font/google'
 import './globals.css'
+import AdminNav from '@/components/AdminNav'
 
 const heebo = Heebo({
   subsets: ['hebrew', 'latin'],
@@ -25,8 +26,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="he" dir="rtl" className={heebo.variable}>
-      <body className="font-heebo antialiased min-h-screen">
+      <body className="font-heebo antialiased">
         {children}
+        <AdminNav />
       </body>
     </html>
   )

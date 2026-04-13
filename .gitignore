@@ -24,3 +24,7 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local reservations JSON store (not used anymore, kept for safety)
+/.data/
+/.trash-contact/

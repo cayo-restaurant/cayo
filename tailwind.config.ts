@@ -9,12 +9,15 @@ const config: Config = {
     extend: {
       colors: {
         cayo: {
-          burgundy: '#4A0E1C',
+          burgundy: '#4D1423',
           dark: '#1A0A10',
-          cream: '#F2E6D0',
-          copper: '#C4784A',
-          teal: '#2D6B5E',
-          gold: '#D4A84B',
+          cream: '#F0E0C7',
+          orange: '#E35632',
+          teal: '#00AD9E',
+          red: '#CB4747',
+          // Keep old aliases for backward compat during migration
+          copper: '#E35632',
+          gold: '#CB4747',
         },
       },
       fontFamily: {

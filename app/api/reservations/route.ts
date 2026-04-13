@@ -1,42 +1,39 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getServiceClient } from '@/lib/supabase'
-import { sendConfirmation } from '@/lib/resend'
+import { createReservation, listReservations } from '@/lib/reservations-store'
+import { isAdminRequest } from '@/lib/admin-auth'
+
+// Reservation hours: 19:00 → 22:30, every 15 min (Israel local time)
+const VALID_TIMES = (() => {
+  const out: string[] = []
+  for (let h = 19; h <= 22; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      if (h === 22 && m > 30) break
+      out.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
+    }
+  }
+  return out
+})()
 
 const reservationSchema = z.object({
-  name: z.string().min(2, 'שם חייב להכיל לפחות 2 תווים'),
+  name: z.string().min(2, 'נא להזין שם'),
+  date: z.string().min(1, 'נא לבחור יום'),
+  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-22:30' }),
+  area: z.enum(['bar', 'table'], { errorMap: () => ({ message: 'נא לבחור אזור' }) }),
+  guests: z.number().min(1).max(10),
   phone: z.string().regex(/^0[0-9]{9}$/, 'מספר טלפון לא תקין'),
-  email: z.string().email('אימייל לא תקין').optional().or(z.literal('')),
-  date: z.string().min(1, 'נא לבחור תאריך'),
-  time: z.string().min(1, 'נא לבחור שעה'),
-  guests: z.number().min(1).max(20),
+  email: z.string().email('אימייל לא תקין'),
+  terms: z.literal(true, { errorMap: () => ({ message: 'יש לאשר את תנאי השימוש והדיוור' }) }),
   notes: z.string().optional(),
 })
 
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const date = searchParams.get('date')
-
-    if (!date) {
-      return NextResponse.json({ error: 'נדרש תאריך' }, { status: 400 })
-    }
-
-    const supabase = getServiceClient()
-    const { data, error } = await supabase
-      .from('reservations')
-      .select('*')
-      .eq('date', date)
-      .order('time', { ascending: true })
-
-    if (error) {
-      return NextResponse.json({ error: 'שגיאה בטעינת הזמנות' }, { status: 500 })
-    }
-
-    return NextResponse.json({ reservations: data })
-  } catch {
-    return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })
+export async function GET() {
+  // Only admins can list all reservations
+  if (!isAdminRequest()) {
+    return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
   }
+  const reservations = await listReservations()
+  return NextResponse.json({ reservations })
 }
 
 export async function POST(request: Request) {
@@ -46,66 +43,12 @@ export async function POST(request: Request) {
 
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]
-      return NextResponse.json(
-        { error: firstError.message },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: firstError.message }, { status: 400 })
     }
 
-    const { name, phone, email, date, time, guests, notes } = parsed.data
-    const supabase = getServiceClient()
-
-    // Check capacity
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'max_guests_per_slot')
-      .single()
-
-    const maxGuests = settings ? parseInt(settings.value) : 30
-
-    const { data: existing } = await supabase
-      .from('reservations')
-      .select('guests')
-      .eq('date', date)
-      .eq('time', time)
-      .neq('status', 'cancelled')
-
-    const totalGuests = (existing || []).reduce((sum, r) => sum + r.guests, 0)
-
-    if (totalGuests + guests > maxGuests) {
-      return NextResponse.json(
-        { error: 'מצטערים, אין מספיק מקום בשעה זו. נסו שעה אחרת.' },
-        { status: 409 }
-      )
-    }
-
-    // Insert reservation
-    const { error: insertError } = await supabase
-      .from('reservations')
-      .insert({ name, phone, email: email || null, date, time, guests, notes: notes || null })
-
-    if (insertError) {
-      return NextResponse.json(
-        { error: 'שגיאה בשמירת ההזמנה' },
-        { status: 500 }
-      )
-    }
-
-    // Send confirmation email
-    if (email) {
-      try {
-        await sendConfirmation({ email, name, date, time, guests })
-      } catch {
-        // Email failure shouldn't block the reservation
-      }
-    }
-
-    return NextResponse.json({ success: true })
+    const reservation = await createReservation(parsed.data)
+    return NextResponse.json({ success: true, id: reservation.id })
   } catch {
-    return NextResponse.json(
-      { error: 'שגיאה בלתי צפויה' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })
   }
 }
