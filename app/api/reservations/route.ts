@@ -29,7 +29,7 @@ const reservationSchema = z.object({
 
 export async function GET() {
   // Only admins can list all reservations
-  if (!isAdminRequest()) {
+  if (!(await isAdminRequest())) {
     return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
   }
   const reservations = await listReservations()

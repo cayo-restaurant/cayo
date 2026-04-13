@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { clearAdminCookie } from '@/lib/admin-auth'
 
+// Deprecated: logout now happens client-side via NextAuth's signOut().
+// Kept as a no-op so any stale client doesn't break.
 export async function POST() {
-  const res = NextResponse.json({ success: true })
-  clearAdminCookie(res)
-  return res
+  return NextResponse.json({ success: true })
 }

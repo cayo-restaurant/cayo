@@ -1,16 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getAdminPassword, setAdminCookie } from '@/lib/admin-auth'
 
-export async function POST(request: Request) {
-  try {
-    const { password } = await request.json()
-    if (!password || password !== getAdminPassword()) {
-      return NextResponse.json({ error: 'סיסמה שגויה' }, { status: 401 })
-    }
-    const res = NextResponse.json({ success: true })
-    setAdminCookie(res)
-    return res
-  } catch {
-    return NextResponse.json({ error: 'שגיאה' }, { status: 500 })
-  }
+// Deprecated: password-based admin login was replaced by Google OAuth via NextAuth.
+// See /api/auth/[...nextauth]. This endpoint is kept only to return a clear error
+// if any stale client still calls it.
+export async function POST() {
+  return NextResponse.json(
+    { error: 'Login moved to Google Sign-In. Go to /admin.' },
+    { status: 410 }
+  )
 }

@@ -31,7 +31,7 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const unauthorized = requireAdmin()
+  const unauthorized = await requireAdmin()
   if (unauthorized) return unauthorized
 
   const reservation = await getReservation(params.id)
@@ -45,7 +45,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const unauthorized = requireAdmin()
+  const unauthorized = await requireAdmin()
   if (unauthorized) return unauthorized
 
   try {
@@ -68,7 +68,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const unauthorized = requireAdmin()
+  const unauthorized = await requireAdmin()
   if (unauthorized) return unauthorized
 
   const ok = await deleteReservation(params.id)
