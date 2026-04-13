@@ -19,11 +19,11 @@ const reservationSchema = z.object({
   name: z.string().min(2, 'נא להזין שם'),
   date: z.string().min(1, 'נא לבחור יום'),
   time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-22:30' }),
-  area: z.enum(['bar', 'table'], { errorMap: () => ({ message: 'נא לבחור אזור' }) }),
+  area: z.enum(['bar', 'table']),
   guests: z.number().min(1).max(10),
   phone: z.string().regex(/^0[0-9]{9}$/, 'מספר טלפון לא תקין'),
   email: z.string().email('אימייל לא תקין'),
-  terms: z.literal(true, { errorMap: () => ({ message: 'יש לאשר את תנאי השימוש והדיוור' }) }),
+  terms: z.literal(true),
   notes: z.string().optional(),
 })
 
