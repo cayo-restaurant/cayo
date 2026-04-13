@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Image Extractor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <h2>PDF Image Extractor</h2>
+    <input type="file" id="pdfInput" accept=".pdf" />
+    <div id="status"></div>
+    <div id="results"></div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const statusEl = document.getElementById('status');
+        const resultsEl = document.getElementById('results');
+
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            statusEl.textContent = 'Loading PDF...';
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            statusEl.textContent = `PDF loaded. ${pdf.numPages} pages. Extracting images...`;
+
+            window._extractedImages = [];
+            let imgCount = 0;
+
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const ops = await page.getOperatorList();
+
+                for (let i = 0; i < ops.fnArray.length; i++) {
+                    if (ops.fnArray[i] === pdfjsLib.OPS.paintImageXObject || ops.fnArray[i] === pdfjsLib.OPS.paintJpegXObject) {
+                        const imgName = ops.argsArray[i][0];
+                        try {
+                            const img = await page.objs.get(imgName);
+                            if (img && img.data) {
+                                imgCount++;
+
+                                // Create canvas to render image
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                const ctx = canvas.getContext('2d');
+
+                                let imageData;
+                                if (img.data instanceof Uint8ClampedArray || img.data instanceof Uint8Array) {
+                                    if (img.data.length === img.width * img.height * 4) {
+                                        imageData = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+                                    } else if (img.data.length === img.width * img.height * 3) {
+                                        // RGB -> RGBA
+                                        const rgba = new Uint8ClampedArray(img.width * img.height * 4);
+                                        for (let j = 0; j < img.width * img.height; j++) {
+                                            rgba[j * 4] = img.data[j * 3];
+                                            rgba[j * 4 + 1] = img.data[j * 3 + 1];
+                                            rgba[j * 4 + 2] = img.data[j * 3 + 2];
+                                            rgba[j * 4 + 3] = 255;
+                                        }
+                                        imageData = new ImageData(rgba, img.width, img.height);
+                                    } else if (img.data.length === img.width * img.height) {
+                                        // Grayscale -> RGBA
+                                        const rgba = new Uint8ClampedArray(img.width * img.height * 4);
+                                        for (let j = 0; j < img.width * img.height; j++) {
+                                            rgba[j * 4] = img.data[j];
+                                            rgba[j * 4 + 1] = img.data[j];
+                                            rgba[j * 4 + 2] = img.data[j];
+                                            rgba[j * 4 + 3] = 255;
+                                        }
+                                        imageData = new ImageData(rgba, img.width, img.height);
+                                    }
+                                }
+
+                                if (imageData) {
+                                    ctx.putImageData(imageData, 0, 0);
+                                    const dataUrl = canvas.toDataURL('image/png');
+                                    window._extractedImages.push({
+                                        name: `cayo_brand_img_${String(imgCount).padStart(3, '0')}.png`,
+                                        page: pageNum,
+                                        width: img.width,
+                                        height: img.height,
+                                        dataUrl: dataUrl
+                                    });
+
+                                    // Show preview
+                                    const div = document.createElement('div');
+                                    div.style.margin = '10px';
+                                    div.innerHTML = `<p><strong>Image ${imgCount}</strong> (page ${pageNum}, ${img.width}x${img.height})</p>`;
+                                    const preview = document.createElement('img');
+                                    preview.src = dataUrl;
+                                    preview.style.maxWidth = '300px';
+                                    preview.style.border = '1px solid #ccc';
+                                    div.appendChild(preview);
+
+                                    const link = document.createElement('a');
+                                    link.href = dataUrl;
+                                    link.download = `cayo_brand_img_${String(imgCount).padStart(3, '0')}.png`;
+                                    link.textContent = ' Download';
+                                    link.style.marginLeft = '10px';
+                                    div.appendChild(link);
+
+                                    resultsEl.appendChild(div);
+                                }
+                            }
+                        } catch (err) {
+                            console.log(`Skipping image ${imgName} on page ${pageNum}: ${err.message}`);
+                        }
+                    }
+                }
+            }
+
+            // Also render full pages as fallback
+            statusEl.textContent = `Found ${imgCount} embedded images. Now rendering full pages...`;
+
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const scale = 2;
+                const viewport = page.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const ctx = canvas.getContext('2d');
+                await page.render({ canvasContext: ctx, viewport }).promise;
+
+                imgCount++;
+                const dataUrl = canvas.toDataURL('image/png');
+                window._extractedImages.push({
+                    name: `cayo_brand_page_${String(pageNum).padStart(3, '0')}.png`,
+                    page: pageNum,
+                    width: viewport.width,
+                    height: viewport.height,
+                    dataUrl: dataUrl,
+                    isFullPage: true
+                });
+
+                const div = document.createElement('div');
+                div.style.margin = '10px';
+                div.innerHTML = `<p><strong>Full Page ${pageNum}</strong> (${Math.round(viewport.width)}x${Math.round(viewport.height)})</p>`;
+                const preview = document.createElement('img');
+                preview.src = dataUrl;
+                preview.style.maxWidth = '400px';
+                preview.style.border = '1px solid #ccc';
+                div.appendChild(preview);
+
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = `cayo_brand_page_${String(pageNum).padStart(3, '0')}.png`;
+                link.textContent = ' Download';
+                link.style.marginLeft = '10px';
+                div.appendChild(link);
+
+                resultsEl.appendChild(div);
+            }
+
+            statusEl.textContent = `Done! ${window._extractedImages.length} total images (embedded + full pages). Ready for download.`;
+            window._extractionDone = true;
+        });
+    </script>
+</body>
+</html>
