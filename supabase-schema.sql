@@ -15,7 +15,7 @@ create table if not exists public.reservations (
   phone text not null,
   email text not null,
   terms boolean not null default true,
-  status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled')),
+  status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled', 'arrived', 'no_show')),
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

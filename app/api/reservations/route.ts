@@ -2,6 +2,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createReservation, listReservations } from '@/lib/reservations-store'
 import { isAdminRequest } from '@/lib/admin-auth'
+import { isHostRequest } from '@/lib/host-auth'
+
+// Today's date in Israel local time as YYYY-MM-DD. Used to restrict what the
+// hostess can see to the current shift's day only.
+function todayLocal(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 // Reservation hours: 19:00 → 22:30, every 15 min (Israel local time)
 const VALID_TIMES = (() => {
@@ -28,11 +39,25 @@ const reservationSchema = z.object({
 })
 
 export async function GET() {
-  // Only admins can list all reservations
-  if (!(await isAdminRequest())) {
+  const admin = await isAdminRequest()
+  // Only fall back to a host cookie when the admin cookie isn't present, so
+  // admin users don't lose access to the full dataset just because they also
+  // happen to have a host cookie on the same device.
+  const host = !admin && isHostRequest()
+
+  if (!admin && !host) {
     return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
   }
+
   const reservations = await listReservations()
+
+  // Hostess-only session: restrict to today's reservations. This also prevents
+  // a host-authenticated device from pulling the full customer history.
+  if (host) {
+    const today = todayLocal()
+    return NextResponse.json({ reservations: reservations.filter(r => r.date === today) })
+  }
+
   return NextResponse.json({ reservations })
 }
 

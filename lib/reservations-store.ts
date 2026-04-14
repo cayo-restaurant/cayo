@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { getServiceClient } from './supabase'
 
-export type ReservationStatus = 'pending' | 'confirmed' | 'cancelled'
+export type ReservationStatus = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show'
 export type ReservationArea = 'bar' | 'table'
 
 export interface Reservation {
