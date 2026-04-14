@@ -46,13 +46,15 @@ function timeToMinutes(time: string): number {
 export type Area = 'bar' | 'table'
 
 export interface ReservationLike {
+  // `id` is optional because not every caller has it (e.g. a candidate
+  // that hasn't been inserted yet). When present it's used to exclude a
+  // specific reservation from the availability calculation.
+  id?: string
   date: string
   time: string
   area: Area
   guests: number
   status: string
-  // Ignored by the math, but the caller can pass extra fields through.
-  [key: string]: unknown
 }
 
 export interface AvailabilityMap {
