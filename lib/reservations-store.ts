@@ -139,6 +139,25 @@ export async function updateReservation(
   return data ? rowToReservation(data as Row) : null
 }
 
+// Auto-close the books on a previous shift day. Any reservation whose
+// scheduled date is strictly before `beforeDate` and which is still in
+// `confirmed` state clearly wasn't marked by the hostess before the
+// shift-day cutoff (04:00 the next morning), so we record it as `no_show`
+// for stats. Idempotent — if nothing matches, no write happens.
+// Pending reservations are intentionally NOT touched: those still need an
+// owner decision.
+export async function markStaleConfirmedAsNoShow(beforeDate: string): Promise<number> {
+  const sb = getServiceClient()
+  const { data, error } = await sb
+    .from(TABLE)
+    .update({ status: 'no_show' as ReservationStatus, updated_at: new Date().toISOString() })
+    .eq('status', 'confirmed')
+    .lt('date', beforeDate)
+    .select('id')
+  if (error) throw error
+  return data?.length ?? 0
+}
+
 export async function deleteReservation(id: string): Promise<boolean> {
   const sb = getServiceClient()
   const { error, count } = await sb

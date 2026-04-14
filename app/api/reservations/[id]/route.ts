@@ -17,12 +17,12 @@ function todayLocal(): string {
   return `${y}-${m}-${day}`
 }
 
-// Reservation hours: 19:00 → 22:30, every 15 min (Israel local time)
+// Reservation hours: 19:00 → 21:30, every 15 min (Israel local time)
 const VALID_TIMES = (() => {
   const out: string[] = []
-  for (let h = 19; h <= 22; h++) {
+  for (let h = 19; h <= 21; h++) {
     for (let m = 0; m < 60; m += 15) {
-      if (h === 22 && m > 30) break
+      if (h === 21 && m > 30) break
       out.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
     }
   }
@@ -33,7 +33,7 @@ const patchSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'cancelled', 'arrived', 'no_show']).optional(),
   name: z.string().min(2).optional(),
   date: z.string().min(1).optional(),
-  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-22:30' }).optional(),
+  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-21:30' }).optional(),
   area: z.enum(['bar', 'table']).optional(),
   guests: z.number().min(1).max(10).optional(),
   phone: z.string().regex(/^0[0-9]{9}$/).optional(),

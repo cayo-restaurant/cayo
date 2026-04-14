@@ -9,7 +9,7 @@ create table if not exists public.reservations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   date date not null,
-  time text not null,           -- HH:MM (19:00 .. 22:30)
+  time text not null,           -- HH:MM (19:00 .. 21:30)
   area text not null check (area in ('bar', 'table')),
   guests int not null check (guests between 1 and 10),
   phone text not null,

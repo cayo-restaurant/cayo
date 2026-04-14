@@ -64,6 +64,20 @@ function toDateString(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
+// The hostess's "today" is the shift day: before 04:00 she's still on the
+// previous calendar day's shift. This mirrors the server's shiftDayLocal().
+function shiftAdjustedDate(now: Date): Date {
+  const d = new Date(now)
+  if (d.getHours() < 4) {
+    d.setDate(d.getDate() - 1)
+  }
+  return d
+}
+
+function computeShiftDateStr(now: Date): string {
+  return toDateString(shiftAdjustedDate(now))
+}
+
 // Convert a "HH:mm" string + a reference date into a Date in local time.
 function timeOn(dateStr: string, time: string): Date {
   const [y, mo, d] = dateStr.split('-').map(Number)
@@ -108,6 +122,9 @@ export default function HostDashboard() {
   const [now, setNow] = useState<number>(() => Date.now())
   // Track which card just had an action for a brief "tap feedback" flash
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  // Done section (arrived/no-show) is collapsed by default — it only exists
+  // for the hostess to undo a mistaken tap.
+  const [showDone, setShowDone] = useState(false)
 
   async function load() {
     try {
@@ -121,7 +138,15 @@ export default function HostDashboard() {
         return
       }
       const data = await res.json()
-      setItems(data.reservations || [])
+      // Belt-and-suspenders: the server already filters to the shift day for a
+      // host-only request, but if the same browser also carries an admin cookie
+      // the server returns the full dataset. Filter on the client too so the
+      // hostess view is always scoped to "today" regardless of which cookie won.
+      const shiftDateStr = computeShiftDateStr(new Date())
+      const todays = (data.reservations || []).filter(
+        (r: Reservation) => r.date === shiftDateStr
+      )
+      setItems(todays)
       setError('')
     } catch {
       setError('אין חיבור לשרת')
@@ -199,13 +224,19 @@ export default function HostDashboard() {
   const byTimeAsc = (a: Enriched, b: Enriched) => a.time.localeCompare(b.time)
   const byLateDesc = (a: Enriched, b: Enriched) => b.lateMinutes - a.lateMinutes
 
-  const orderedList: Enriched[] = [
+  // Active list — what the hostess needs to act on. Marked reservations
+  // (arrived / no-show) are pulled out and shown in a separate collapsible
+  // section below so they don't clutter the working list but remain reachable
+  // for quick undo if she tapped the wrong button.
+  const activeList: Enriched[] = [
     ...lateItems.sort(byLateDesc),
     ...soonItems.sort(byTimeAsc),
     ...upcomingItems.sort(byTimeAsc),
+    ...otherItems.sort(byTimeAsc),
+  ]
+  const doneList: Enriched[] = [
     ...arrivedItems.sort(byTimeAsc),
     ...noShowItems.sort(byTimeAsc),
-    ...otherItems.sort(byTimeAsc),
   ]
 
   // Headline stats — only count reservations that the shift actually serves
@@ -219,8 +250,10 @@ export default function HostDashboard() {
 
   const nextUp = [...soonItems, ...upcomingItems].sort(byTimeAsc)[0] || null
 
-  const today = new Date(now)
-  const todayLabel = `יום ${HEBREW_DAYS[today.getDay()]}, ${today.getDate()} ${HEBREW_MONTHS[today.getMonth()]}`
+  // Header label uses the shift day, not the calendar day: after midnight
+  // the hostess is still working "Monday night" until 04:00 on Tuesday.
+  const shiftDate = shiftAdjustedDate(now)
+  const todayLabel = `יום ${HEBREW_DAYS[shiftDate.getDay()]}, ${shiftDate.getDate()} ${HEBREW_MONTHS[shiftDate.getMonth()]}`
 
   return (
     <div className="min-h-screen bg-white pb-12">
@@ -246,29 +279,12 @@ export default function HostDashboard() {
       </header>
 
       <main className="max-w-3xl mx-auto px-5 py-5">
-        {/* Shift stats */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        {/* Shift stats — single card: total guests expected today */}
+        <div className="mb-4">
           <Stat
-            label="הגיעו / צפויים"
-            value={`${arrivedGuests}/${expectedGuests}`}
+            label="הזמנות היום"
+            value={String(expectedGuests)}
             sub="סועדים"
-          />
-          <Stat
-            label="מאחרים"
-            value={String(lateItems.length)}
-            sub={lateItems.length > 0 ? 'דורש תשומת לב' : 'הכל בזמן'}
-            emphasis={lateItems.length > 0 ? 'red' : 'neutral'}
-          />
-          <Stat
-            label="הבאה"
-            value={nextUp ? nextUp.time : '—'}
-            sub={
-              nextUp
-                ? nextUp.minutesFromNow <= 0
-                  ? 'עכשיו'
-                  : `בעוד ${nextUp.minutesFromNow} דק׳`
-                : 'אין הזמנות'
-            }
           />
         </div>
 
@@ -296,28 +312,77 @@ export default function HostDashboard() {
 
         {loading ? (
           <p className="text-center text-cayo-burgundy/50 py-16 font-bold">טוען...</p>
-        ) : orderedList.length === 0 ? (
+        ) : activeList.length === 0 && doneList.length === 0 ? (
           <div className="py-16 text-center text-cayo-burgundy/40 font-bold border-2 border-dashed border-cayo-burgundy/20 rounded-2xl">
             אין הזמנות להיום
           </div>
         ) : (
           <>
-            <div className="space-y-2">
-              {orderedList.map(r => (
-                <ReservationRow
-                  key={r.id}
-                  reservation={r}
-                  pending={pendingAction === r.id}
-                  onArrived={() => setStatus(r.id, 'arrived')}
-                  onNoShow={() => setStatus(r.id, 'no_show')}
-                  onUndo={() => setStatus(r.id, 'confirmed')}
-                />
-              ))}
-            </div>
-            {/* Swipe hint */}
-            <p className="text-[11px] text-cayo-burgundy/40 text-center mt-4 font-bold">
-              החליקי הזמנה ימינה לסימון מהיר · הקישי להצגת פרטים
-            </p>
+            {/* Active list — the working queue */}
+            {activeList.length > 0 ? (
+              <>
+                <div className="space-y-2">
+                  {activeList.map(r => (
+                    <ReservationRow
+                      key={r.id}
+                      reservation={r}
+                      pending={pendingAction === r.id}
+                      onArrived={() => setStatus(r.id, 'arrived')}
+                      onNoShow={() => setStatus(r.id, 'no_show')}
+                      onUndo={() => setStatus(r.id, 'confirmed')}
+                    />
+                  ))}
+                </div>
+                {/* Swipe hint */}
+                <p className="text-[11px] text-cayo-burgundy/40 text-center mt-3 font-bold">
+                  החליקי הזמנה ימינה לסימון מהיר · הקישי להצגת פרטים
+                </p>
+              </>
+            ) : (
+              <div className="py-10 text-center text-cayo-burgundy/40 font-bold border-2 border-dashed border-cayo-burgundy/20 rounded-2xl">
+                כל ההזמנות סומנו
+              </div>
+            )}
+
+            {/* Marked (done) section — collapsed by default, for undo only */}
+            {doneList.length > 0 && (
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowDone(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-cayo-burgundy/5 hover:bg-cayo-burgundy/10 rounded-xl border-2 border-cayo-burgundy/10 transition-colors"
+                >
+                  <span className="text-sm font-black text-cayo-burgundy/70">
+                    מסומנות ({doneList.length})
+                  </span>
+                  <span className="flex items-center gap-2 text-xs font-bold text-cayo-burgundy/50">
+                    <span>
+                      {arrivedItems.length} הגיעו · {noShowItems.length} לא הגיעו
+                    </span>
+                    <span className="text-cayo-burgundy/40">
+                      {showDone ? '▲' : '▼'}
+                    </span>
+                  </span>
+                </button>
+
+                {showDone && (
+                  <div className="space-y-2 mt-2">
+                    {doneList.map(r => (
+                      <ReservationRow
+                        key={r.id}
+                        reservation={r}
+                        pending={pendingAction === r.id}
+                        onArrived={() => setStatus(r.id, 'arrived')}
+                        onNoShow={() => setStatus(r.id, 'no_show')}
+                        onUndo={() => setStatus(r.id, 'confirmed')}
+                      />
+                    ))}
+                    <p className="text-[11px] text-cayo-burgundy/40 text-center mt-2 font-bold">
+                      הקישי על הזמנה ואז &quot;ביטול סימון&quot; כדי להחזיר אותה לרשימה
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </main>

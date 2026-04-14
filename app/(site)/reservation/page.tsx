@@ -1,16 +1,24 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import cayoLogo from '../../../cayo_brand_page_005.png'
 
+// Availability response from GET /api/availability?date=...
+interface AvailabilityResponse {
+  bar: Record<string, number>
+  table: Record<string, number>
+  capacity: { bar: number; table: number }
+  durationMinutes: number
+}
+
 // ───── Time / date helpers ─────
 function generateTimeSlots() {
   const slots: string[] = []
-  for (let h = 19; h <= 22; h++) {
+  for (let h = 19; h <= 21; h++) {
     for (let m = 0; m < 60; m += 15) {
-      if (h === 22 && m > 30) break
+      if (h === 21 && m > 30) break
       slots.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
     }
   }
@@ -84,21 +92,30 @@ function Chip({
   onClick,
   children,
   fullWidth = false,
+  disabled = false,
+  disabledLabel,
 }: {
   active: boolean
   onClick: () => void
   children: React.ReactNode
   fullWidth?: boolean
+  disabled?: boolean
+  disabledLabel?: string
 }) {
+  const baseWidth = fullWidth ? 'w-full' : ''
+  const stateClass = disabled
+    ? 'bg-cayo-burgundy/5 text-cayo-burgundy/35 border-cayo-burgundy/10 cursor-not-allowed line-through decoration-2'
+    : active
+    ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+    : 'bg-white text-cayo-burgundy border-cayo-burgundy/20 hover:border-cayo-burgundy/50'
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`${fullWidth ? 'w-full' : ''} px-4 py-2.5 rounded-full border-2 font-bold text-sm transition-colors whitespace-nowrap ${
-        active
-          ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
-          : 'bg-white text-cayo-burgundy border-cayo-burgundy/20 hover:border-cayo-burgundy/50'
-      }`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
+      title={disabled ? disabledLabel : undefined}
+      className={`${baseWidth} px-4 py-2.5 rounded-full border-2 font-bold text-sm transition-colors whitespace-nowrap ${stateClass}`}
     >
       {children}
     </button>
@@ -153,6 +170,64 @@ export default function ReservationPage() {
     () => dateOptions.find(d => d.value === form.date),
     [form.date]
   )
+
+  // ── Availability fetch ──
+  // When the user picks a date, load seats-remaining per slot so we can grey
+  // out full slots and label them "תפוס". We refetch on area change too —
+  // bar and table have independent capacity, so "full" means different things.
+  const [availability, setAvailability] = useState<AvailabilityResponse | null>(null)
+  const [availabilityLoading, setAvailabilityLoading] = useState(false)
+
+  useEffect(() => {
+    if (!form.date) {
+      setAvailability(null)
+      return
+    }
+    let cancelled = false
+    setAvailabilityLoading(true)
+    fetch(`/api/availability?date=${form.date}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (cancelled) return
+        setAvailability(data)
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability(null)
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [form.date])
+
+  // How many seats this picker considers "required" for a slot to be
+  // bookable. If the user hasn't chosen guests yet we default to 1 — so slots
+  // only show as "תפוס" if they're truly zero. Once guests is picked, slots
+  // with fewer remaining seats also become disabled.
+  const requiredSeats = form.guests || 1
+
+  // A slot is unavailable if either:
+  //   (a) the user already chose an area and that area has < requiredSeats
+  //   (b) no area chosen yet and BOTH areas have < requiredSeats
+  function slotDisabled(slot: string): boolean {
+    if (!availability) return false
+    const bar = availability.bar[slot] ?? 0
+    const table = availability.table[slot] ?? 0
+    if (form.area === 'bar') return bar < requiredSeats
+    if (form.area === 'table') return table < requiredSeats
+    return bar < requiredSeats && table < requiredSeats
+  }
+
+  // A seating area is disabled (for the currently-chosen slot) if it has no
+  // room for the requested group size.
+  function areaDisabled(area: 'bar' | 'table'): boolean {
+    if (!availability || !form.time) return false
+    const remaining =
+      area === 'bar' ? availability.bar[form.time] : availability.table[form.time]
+    return (remaining ?? 0) < requiredSeats
+  }
 
   function validate(): boolean {
     const e: FormErrors = {}
@@ -284,24 +359,49 @@ export default function ReservationPage() {
               <div>
                 <p className="text-[11px] font-bold text-cayo-burgundy/50 mb-1.5">מוקדם</p>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {EARLY_SLOTS.map(slot => (
-                    <Chip key={slot} active={form.time === slot} onClick={() => setForm({ ...form, time: slot })} fullWidth>
-                      <span dir="ltr">{slot}</span>
-                    </Chip>
-                  ))}
+                  {EARLY_SLOTS.map(slot => {
+                    const disabled = slotDisabled(slot)
+                    return (
+                      <Chip
+                        key={slot}
+                        active={form.time === slot}
+                        onClick={() => setForm({ ...form, time: slot })}
+                        fullWidth
+                        disabled={disabled}
+                        disabledLabel="תפוס"
+                      >
+                        <span dir="ltr">{slot}</span>
+                      </Chip>
+                    )
+                  })}
                 </div>
               </div>
               <div>
                 <p className="text-[11px] font-bold text-cayo-burgundy/50 mb-1.5 mt-2">מאוחר</p>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {LATE_SLOTS.map(slot => (
-                    <Chip key={slot} active={form.time === slot} onClick={() => setForm({ ...form, time: slot })} fullWidth>
-                      <span dir="ltr">{slot}</span>
-                    </Chip>
-                  ))}
+                  {LATE_SLOTS.map(slot => {
+                    const disabled = slotDisabled(slot)
+                    return (
+                      <Chip
+                        key={slot}
+                        active={form.time === slot}
+                        onClick={() => setForm({ ...form, time: slot })}
+                        fullWidth
+                        disabled={disabled}
+                        disabledLabel="תפוס"
+                      >
+                        <span dir="ltr">{slot}</span>
+                      </Chip>
+                    )
+                  })}
                 </div>
               </div>
             </div>
+            {form.date && availability && !availabilityLoading && (
+              <p className="mt-2 text-[11px] text-cayo-burgundy/50 text-right">
+                שעות עם קו חוצה = תפוס
+              </p>
+            )}
             {errors.time && <p className={errorClass}>{errors.time}</p>}
           </div>
 
@@ -322,8 +422,24 @@ export default function ReservationPage() {
           <div>
             <FieldLabel>העדפת ישיבה</FieldLabel>
             <div className="grid grid-cols-2 gap-2">
-              <Chip active={form.area === 'bar'} onClick={() => setForm({ ...form, area: 'bar' })} fullWidth>בר</Chip>
-              <Chip active={form.area === 'table'} onClick={() => setForm({ ...form, area: 'table' })} fullWidth>שולחן</Chip>
+              <Chip
+                active={form.area === 'bar'}
+                onClick={() => setForm({ ...form, area: 'bar' })}
+                fullWidth
+                disabled={areaDisabled('bar')}
+                disabledLabel="תפוס"
+              >
+                בר{areaDisabled('bar') ? ' · תפוס' : ''}
+              </Chip>
+              <Chip
+                active={form.area === 'table'}
+                onClick={() => setForm({ ...form, area: 'table' })}
+                fullWidth
+                disabled={areaDisabled('table')}
+                disabledLabel="תפוס"
+              >
+                שולחן{areaDisabled('table') ? ' · תפוס' : ''}
+              </Chip>
             </div>
             {errors.area && <p className={errorClass}>{errors.area}</p>}
           </div>
