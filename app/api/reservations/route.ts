@@ -89,11 +89,15 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  // Admin POSTs (manual entry from the dashboard) bypass the public rate limit
-  // and use a relaxed schema where contact fields are optional.
+  // Staff POSTs (admin via Google OAuth OR hostess via PIN cookie) bypass the
+  // public rate limit and use a relaxed schema where contact fields are
+  // optional — both surfaces need to be able to block a slot before the
+  // guest's details are fully collected (walk-ins, phone bookings).
   const admin = await isAdminRequest()
+  const host = isHostRequest()
+  const staff = admin || host
 
-  if (!admin) {
+  if (!staff) {
     // Rate limit: 5 reservations per 10 minutes per IP — public-only
     const ip = getClientIp(request)
     const rateCheck = checkRateLimit(ip)
@@ -107,13 +111,35 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json()
-    const parsed = admin
+    const parsed = staff
       ? adminReservationSchema.safeParse(body)
       : reservationSchema.safeParse(body)
 
+    // Debug log: surface which schema ran and what failed. Lets us diagnose
+    // cases where the hostess/owner reports "missing details" errors on /admin
+    // — usually means the admin cookie wasn't sent so we fell back to strict.
+    console.log('[reservations POST]', {
+      admin,
+      host,
+      staff,
+      schema: staff ? 'adminReservationSchema' : 'reservationSchema',
+      ok: parsed.success,
+      bodyKeys: Object.keys(body || {}),
+      issues: parsed.success ? null : parsed.error.issues.map(i => ({
+        path: i.path.join('.'),
+        message: i.message,
+      })),
+    })
+
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]
-      return NextResponse.json({ error: firstError.message }, { status: 400 })
+      const fieldPath = firstError.path.join('.')
+      // Return the field name alongside the message so the client can show
+      // a more helpful error ("name: נא להזין שם" vs just "נא להזין שם").
+      return NextResponse.json(
+        { error: firstError.message, field: fieldPath, admin, host, staff },
+        { status: 400 },
+      )
     }
 
     // Capacity gate: reject if this reservation would overfill the chosen
