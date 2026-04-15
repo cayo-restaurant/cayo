@@ -168,23 +168,13 @@ export async function POST(request: Request) {
     })
 
     // Confirmation emails are temporarily disabled by request of the owner.
-    // To re-enable, remove the `false &&` guard below (or flip via env flag).
-    // eslint-disable-next-line no-constant-condition
-    if (false && parsed.data.email) {
-      try {
-        await sendConfirmation({
-          email: parsed.data.email,
-          name: parsed.data.name || 'אורח/ת',
-          date: parsed.data.date,
-          time: parsed.data.time,
-          guests: parsed.data.guests,
-        })
-      } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError)
-        // Continue anyway — booking is already created
-      }
-    }
-    
+    // Previously we had a `sendConfirmation` call here guarded by `if (false && ...)`
+    // — that dead-code guard trips TS control-flow narrowing under strict mode
+    // (parsed.data is seen as possibly undefined inside the unreachable branch),
+    // which broke the Vercel build. To re-enable confirmation emails, restore
+    // the sendConfirmation block here using an env flag instead of `false &&`.
+    void sendConfirmation
+
     return NextResponse.json({ success: true, id: reservation.id })
   } catch {
     return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })
