@@ -99,6 +99,15 @@ const MAX_ATTEMPTS = 5
 const LOCKOUT_MS = 60 * 1000
 const attempts = new Map<string, Attempt>()
 
+// Per-PIN global backoff: after 100 failed attempts across all IPs, freeze for 5 min
+interface PinBackoff {
+  failureCount: number
+  frozenUntil: number
+}
+const PIN_BACKOFF_THRESHOLD = 100
+const PIN_FREEZE_MS = 5 * 60 * 1000
+const pinBackoff: PinBackoff = { failureCount: 0, frozenUntil: 0 }
+
 export function getLockoutRemaining(ip: string): number {
   const rec = attempts.get(ip)
   if (!rec) return 0
@@ -106,8 +115,27 @@ export function getLockoutRemaining(ip: string): number {
   return remaining > 0 ? remaining : 0
 }
 
+export function getPinBackoffRemaining(): number {
+  const remaining = pinBackoff.frozenUntil - Date.now()
+  return remaining > 0 ? remaining : 0
+}
+
 export function registerFailedAttempt(ip: string): { locked: boolean; remainingMs: number } {
   const now = Date.now()
+  
+  // Check global PIN backoff first
+  if (pinBackoff.frozenUntil > now) {
+    return { locked: true, remainingMs: pinBackoff.frozenUntil - now }
+  }
+
+  // Increment global failure counter
+  pinBackoff.failureCount++
+  if (pinBackoff.failureCount >= PIN_BACKOFF_THRESHOLD) {
+    pinBackoff.frozenUntil = now + PIN_FREEZE_MS
+    return { locked: true, remainingMs: PIN_FREEZE_MS }
+  }
+
+  // Per-IP lockout
   const rec = attempts.get(ip)
   const newCount = (rec?.count || 0) + 1
   if (newCount >= MAX_ATTEMPTS) {
@@ -120,6 +148,9 @@ export function registerFailedAttempt(ip: string): { locked: boolean; remainingM
 
 export function clearAttempts(ip: string) {
   attempts.delete(ip)
+  // Reset global failure counter on successful login
+  pinBackoff.failureCount = 0
+  pinBackoff.frozenUntil = 0
 }
 
 export function verifyPin(pin: string): boolean {

@@ -5,12 +5,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/supabase-js": "^2.103.0",
-    "@types/node": "^25.6.0",
+    "@types/node": "^22",
     "@types/react": "^19.2.14",
     "autoprefixer": "^10.4.27",
     "next": "^14.2.35",
@@ -22,5 +23,8 @@
     "tailwindcss": "^3.4.19",
     "typescript": "^6.0.2",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0"
   }
 }

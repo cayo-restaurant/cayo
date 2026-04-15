@@ -26,8 +26,13 @@ create index if not exists reservations_date_idx on public.reservations (date);
 create index if not exists reservations_status_idx on public.reservations (status);
 create index if not exists reservations_date_time_idx on public.reservations (date, time);
 
--- Row Level Security — locked down.
+-- Row Level Security — locked down (deny-all with service-role bypass).
 -- All access goes through the service role (used by our server API routes),
 -- which BYPASSES RLS. The anon key cannot read or write reservations directly,
 -- so the data is only reachable through our authenticated server endpoints.
+-- 
+-- Design rationale: Since we have a single backend (no different roles or tenants),
+-- and the service role is server-only (never exposed to the browser), this pattern
+-- is secure. If we ever add multiple roles or per-user access control, we would
+-- add explicit policies here instead of relying on the deny-all default.
 alter table public.reservations enable row level security;

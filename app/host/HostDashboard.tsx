@@ -31,6 +31,7 @@ import {
   enrich,
   shiftAdjustedDate,
 } from './shared'
+import { UndoToast, UndoToastState } from '../../components/UndoToast'
 
 export default function HostDashboard() {
   const router = useRouter()
@@ -41,6 +42,8 @@ export default function HostDashboard() {
   const [now, setNow] = useState<number>(() => Date.now())
   // Track which card just had an action for a brief "tap feedback" flash
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  // Undo toast for destructive marks (no_show). Auto-dismisses in 3s.
+  const [undoToast, setUndoToast] = useState<UndoToastState | null>(null)
 
   async function load() {
     try {
@@ -84,8 +87,13 @@ export default function HostDashboard() {
   }, [])
 
   async function setStatus(id: string, status: Status) {
+    // Capture the previous status BEFORE the optimistic mutation so the undo
+    // toast (for destructive marks) can revert exactly to where we were.
+    const prev = items.find(r => r.id === id)
+    const prevStatus = prev?.status
+
     setPendingAction(id)
-    setItems(prev => prev.map(r => (r.id === id ? { ...r, status } : r)))
+    setItems(p => p.map(r => (r.id === id ? { ...r, status } : r)))
     try {
       const res = await fetch(`/api/reservations/${id}`, {
         method: 'PATCH',
@@ -94,6 +102,18 @@ export default function HostDashboard() {
       })
       if (!res.ok) {
         await load()
+        return
+      }
+      // Surface an undo affordance on destructive marks. A misfired swipe
+      // during service is the failure mode this guards against.
+      if (status === 'no_show' && prevStatus && prevStatus !== 'no_show') {
+        setUndoToast({
+          message: `סומן "לא הגיע/ה" – ${prev?.name ?? ''}`,
+          onUndo: () => {
+            setUndoToast(null)
+            setStatus(id, prevStatus)
+          },
+        })
       }
     } catch {
       await load()
@@ -238,6 +258,7 @@ export default function HostDashboard() {
           </>
         )}
       </main>
+      <UndoToast state={undoToast} onClose={() => setUndoToast(null)} />
     </div>
   )
 }

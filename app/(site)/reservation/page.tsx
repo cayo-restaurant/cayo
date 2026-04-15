@@ -63,9 +63,10 @@ function generateDateOptions() {
 }
 const dateOptions = generateDateOptions()
 
-// Split time slots into two friendly groups
-const EARLY_SLOTS = timeSlots.filter(t => t < '21:00')
-const LATE_SLOTS = timeSlots.filter(t => t >= '21:00')
+// Split time slots into two roughly-equal groups (6 early / 5 late for the
+// 11-slot 19:00–21:30 window). Boundary at 20:30 keeps the visual rows even.
+const EARLY_SLOTS = timeSlots.filter(t => t < '20:30')
+const LATE_SLOTS = timeSlots.filter(t => t >= '20:30')
 
 interface FormErrors {
   name?: string
@@ -220,9 +221,15 @@ export default function ReservationPage() {
     return bar < requiredSeats && table < requiredSeats
   }
 
+  // Per-reservation cap at the bar. Kept in sync with MAX_BAR_PARTY in
+  // lib/capacity.ts (server is authoritative).
+  const MAX_BAR_PARTY = 3
+
   // A seating area is disabled (for the currently-chosen slot) if it has no
-  // room for the requested group size.
+  // room for the requested group size, or — for the bar — if the party
+  // exceeds the per-reservation cap.
   function areaDisabled(area: 'bar' | 'table'): boolean {
+    if (area === 'bar' && form.guests > MAX_BAR_PARTY) return true
     if (!availability || !form.time) return false
     const remaining =
       area === 'bar' ? availability.bar[form.time] : availability.table[form.time]
@@ -236,6 +243,7 @@ export default function ReservationPage() {
     if (!form.time) e.time = 'נא לבחור שעה'
     if (!form.area) e.area = 'נא לבחור העדפת ישיבה'
     if (!form.guests || form.guests < 1 || form.guests > 10) e.guests = 'מספר סועדים חייב להיות בין 1 ל-10'
+    if (form.area === 'bar' && form.guests > MAX_BAR_PARTY) e.area = `על הבר אפשר להזמין עד ${MAX_BAR_PARTY} סועדים בלבד`
     if (!form.phone || !/^0[0-9]{9}$/.test(form.phone)) e.phone = 'מספר טלפון לא תקין'
     if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'כתובת אימייל לא תקינה'
     if (!form.terms) e.terms = 'יש לאשר את תנאי השימוש'
@@ -427,9 +435,9 @@ export default function ReservationPage() {
                 onClick={() => setForm({ ...form, area: 'bar' })}
                 fullWidth
                 disabled={areaDisabled('bar')}
-                disabledLabel="תפוס"
+                disabledLabel={form.guests > MAX_BAR_PARTY ? `עד ${MAX_BAR_PARTY}` : 'תפוס'}
               >
-                בר{areaDisabled('bar') ? ' · תפוס' : ''}
+                בר{areaDisabled('bar') ? (form.guests > MAX_BAR_PARTY ? ` · עד ${MAX_BAR_PARTY} סועדים` : ' · תפוס') : ''}
               </Chip>
               <Chip
                 active={form.area === 'table'}
@@ -501,7 +509,10 @@ export default function ReservationPage() {
                 className="mt-1 w-5 h-5 rounded border-2 border-cayo-burgundy/30 text-cayo-burgundy focus:ring-cayo-burgundy focus:ring-offset-0 cursor-pointer accent-cayo-burgundy shrink-0"
               />
               <span className="text-sm text-cayo-burgundy/70 leading-relaxed">
-                קראתי ואני מסכים/ה ל<a href="#" className="underline font-bold hover:text-cayo-burgundy">תנאי השימוש</a>
+                קראתי ואני מסכים/ה ל
+                <a href="/terms" target="_blank" rel="noopener" className="underline font-bold hover:text-cayo-burgundy">תנאי השימוש</a>
+                {' ול'}
+                <a href="/privacy" target="_blank" rel="noopener" className="underline font-bold hover:text-cayo-burgundy">מדיניות הפרטיות</a>
               </span>
             </label>
             {errors.terms && <p className="mt-1.5 text-sm text-cayo-red font-bold">{errors.terms}</p>}

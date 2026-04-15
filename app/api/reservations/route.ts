@@ -7,44 +7,10 @@ import {
 } from '@/lib/reservations-store'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
-import { checkSlotAvailability } from '@/lib/capacity'
-
-// The hostess's "today" isn't the calendar day — it's the shift day. A shift
-// that opens at, say, Monday 19:00 keeps its Monday identity until 04:00
-// Tuesday morning, at which point the dashboard rolls forward to Tuesday.
-// This matches how the restaurant actually thinks about a service night.
-//
-// We compute this in Asia/Jerusalem regardless of where the server runs:
-// subtract 4 hours from "now", then format the resulting instant as a
-// YYYY-MM-DD in Israel local time. That single transformation expresses
-// "the 4am cutoff lives at Israel local midnight + 4h".
-const SHIFT_CUTOFF_HOURS = 4
-
-function shiftDayLocal(): string {
-  const shifted = new Date(Date.now() - SHIFT_CUTOFF_HOURS * 60 * 60 * 1000)
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jerusalem',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(shifted)
-  const y = parts.find(p => p.type === 'year')!.value
-  const m = parts.find(p => p.type === 'month')!.value
-  const d = parts.find(p => p.type === 'day')!.value
-  return `${y}-${m}-${d}`
-}
-
-// Reservation hours: 19:00 → 21:30, every 15 min (Israel local time)
-const VALID_TIMES = (() => {
-  const out: string[] = []
-  for (let h = 19; h <= 21; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      if (h === 21 && m > 30) break
-      out.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
-    }
-  }
-  return out
-})()
+import { checkSlotAvailability, VALID_TIMES } from '@/lib/capacity'
+import { shiftDayLocal } from '@/lib/shift-day'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { sendConfirmation } from '@/lib/resend'
 
 const reservationSchema = z.object({
   name: z.string().min(2, 'נא להזין שם'),
@@ -52,11 +18,41 @@ const reservationSchema = z.object({
   time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-21:30' }),
   area: z.enum(['bar', 'table']),
   guests: z.number().min(1).max(10),
-  phone: z.string().regex(/^0[0-9]{9}$/, 'מספר טלפון לא תקין'),
+  phone: z.string().regex(/^05[0-9]{8}$/, 'מספר טלפון לא תקין'),
   email: z.string().email('אימייל לא תקין'),
   terms: z.literal(true),
-  notes: z.string().optional(),
+  notes: z.string().max(500).optional(),
 })
+
+// Relaxed schema used when an admin creates a reservation manually (e.g. a
+// walk-in or a phone booking). Contact details are optional — sometimes the
+// hostess just needs to block a slot before she has the guest's details.
+// Date / time / area / guests are still required because they're load-bearing
+// for capacity math.
+const adminReservationSchema = z.object({
+  name: z.string().trim().max(100).optional().default(''),
+  date: z.string().min(1, 'נא לבחור יום'),
+  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-21:30' }),
+  area: z.enum(['bar', 'table']),
+  guests: z.number().min(1).max(10),
+  phone: z.string().trim().refine(v => v === '' || /^05[0-9]{8}$/.test(v), {
+    message: 'מספר טלפון לא תקין',
+  }).optional().default(''),
+  email: z.string().trim().refine(v => v === '' || z.string().email().safeParse(v).success, {
+    message: 'אימייל לא תקין',
+  }).optional().default(''),
+  terms: z.boolean().optional().default(true),
+  notes: z.string().max(500).optional(),
+})
+
+function getClientIp(request: Request): string {
+  const xff = request.headers.get('x-forwarded-for')
+  const realIp = request.headers.get('x-real-ip')
+  // Prefer x-real-ip (Vercel), fallback to first IP in x-forwarded-for
+  if (realIp) return realIp.split(',')[0].trim()
+  if (xff) return xff.split(',')[0].trim()
+  return 'unknown'
+}
 
 export async function GET() {
   const admin = await isAdminRequest()
@@ -93,9 +89,27 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Admin POSTs (manual entry from the dashboard) bypass the public rate limit
+  // and use a relaxed schema where contact fields are optional.
+  const admin = await isAdminRequest()
+
+  if (!admin) {
+    // Rate limit: 5 reservations per 10 minutes per IP — public-only
+    const ip = getClientIp(request)
+    const rateCheck = checkRateLimit(ip)
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'יותר מדי ניסיונות. אנא נסה שנית בעוד כמה דקות.' },
+        { status: 429 }
+      )
+    }
+  }
+
   try {
     const body = await request.json()
-    const parsed = reservationSchema.safeParse(body)
+    const parsed = admin
+      ? adminReservationSchema.safeParse(body)
+      : reservationSchema.safeParse(body)
 
     if (!parsed.success) {
       const firstError = parsed.error.issues[0]
@@ -117,7 +131,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: capacityError }, { status: 409 })
     }
 
-    const reservation = await createReservation(parsed.data)
+    // Backfill defaults so DB columns stay non-null for admin-created entries
+    // where the hostess hasn't collected name/phone/email yet.
+    const reservation = await createReservation({
+      ...parsed.data,
+      name: parsed.data.name || 'אורח/ת',
+      phone: parsed.data.phone || '',
+      email: parsed.data.email || '',
+      terms: parsed.data.terms ?? true,
+    })
+
+    // Confirmation emails are temporarily disabled by request of the owner.
+    // To re-enable, remove the `false &&` guard below (or flip via env flag).
+    // eslint-disable-next-line no-constant-condition
+    if (false && parsed.data.email) {
+      try {
+        await sendConfirmation({
+          email: parsed.data.email,
+          name: parsed.data.name || 'אורח/ת',
+          date: parsed.data.date,
+          time: parsed.data.time,
+          guests: parsed.data.guests,
+        })
+      } catch (emailError) {
+        console.error('Failed to send confirmation email:', emailError)
+        // Continue anyway — booking is already created
+      }
+    }
+    
     return NextResponse.json({ success: true, id: reservation.id })
   } catch {
     return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })

@@ -17,6 +17,10 @@
 
 export const BAR_CAPACITY = Number(process.env.BAR_CAPACITY ?? 999)
 export const TABLE_CAPACITY = Number(process.env.TABLE_CAPACITY ?? 999)
+// Per-reservation cap at the bar: bar bookings are walk-up-style, no party
+// larger than this can be booked together on bar stools. Tables are not
+// constrained per-reservation (only by TABLE_CAPACITY).
+export const MAX_BAR_PARTY = Number(process.env.MAX_BAR_PARTY ?? 3)
 export const RESERVATION_DURATION_MINUTES = Number(
   process.env.RESERVATION_DURATION_MINUTES ?? 120
 )
@@ -105,13 +109,20 @@ export function computeAvailability(
   }
 }
 
-// Single-slot variant used by the POST handler before creating a reservation.
+// Single-slot variant used by the POST handler before creating a reservation,
+// and by PATCH to check if an update would violate capacity.
 // Returns `null` if there's room, or a human-readable Hebrew reason if not.
 export function checkSlotAvailability(
   reservations: ReservationLike[],
-  candidate: { date: string; time: string; area: Area; guests: number }
+  candidate: { date: string; time: string; area: Area; guests: number },
+  opts: { excludeReservationId?: string } = {}
 ): string | null {
-  const map = computeAvailability(reservations, candidate.date)
+  // Per-reservation cap on the bar (independent of total bar capacity).
+  if (candidate.area === 'bar' && candidate.guests > MAX_BAR_PARTY) {
+    return `על הבר אפשר להזמין עד ${MAX_BAR_PARTY} סועדים בלבד. לקבוצה גדולה יותר נא לבחור שולחן.`
+  }
+
+  const map = computeAvailability(reservations, candidate.date, opts)
   const remaining =
     candidate.area === 'bar' ? map.bar[candidate.time] : map.table[candidate.time]
   if (remaining === undefined) {

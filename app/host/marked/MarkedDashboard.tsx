@@ -20,6 +20,7 @@ import {
   enrich,
   shiftAdjustedDate,
 } from '../shared'
+import { UndoToast, UndoToastState } from '../../../components/UndoToast'
 
 export default function MarkedDashboard() {
   const router = useRouter()
@@ -28,6 +29,7 @@ export default function MarkedDashboard() {
   const [error, setError] = useState('')
   const [now, setNow] = useState<number>(() => Date.now())
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [undoToast, setUndoToast] = useState<UndoToastState | null>(null)
 
   async function load() {
     try {
@@ -67,15 +69,30 @@ export default function MarkedDashboard() {
   }, [])
 
   async function setStatus(id: string, status: Status) {
+    const prev = items.find(r => r.id === id)
+    const prevStatus = prev?.status
+
     setPendingAction(id)
-    setItems(prev => prev.map(r => (r.id === id ? { ...r, status } : r)))
+    setItems(p => p.map(r => (r.id === id ? { ...r, status } : r)))
     try {
       const res = await fetch(`/api/reservations/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      if (!res.ok) await load()
+      if (!res.ok) {
+        await load()
+        return
+      }
+      if (status === 'no_show' && prevStatus && prevStatus !== 'no_show') {
+        setUndoToast({
+          message: `סומן "לא הגיע/ה" – ${prev?.name ?? ''}`,
+          onUndo: () => {
+            setUndoToast(null)
+            setStatus(id, prevStatus)
+          },
+        })
+      }
     } catch {
       await load()
     } finally {
@@ -175,6 +192,7 @@ export default function MarkedDashboard() {
           </>
         )}
       </main>
+      <UndoToast state={undoToast} onClose={() => setUndoToast(null)} />
     </div>
   )
 }

@@ -54,8 +54,38 @@ export function toDateString(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
+// Compute the current time in Asia/Jerusalem timezone (for late-detection and shift-day math).
+// Returns the Date object adjusted to reflect the current Israel local time.
+function getNowInIsraelTime(): Date {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  
+  const parts = formatter.formatToParts(new Date())
+  const get = (type: string) => {
+    const part = parts.find(p => p.type === type)
+    return part ? parseInt(part.value, 10) : 0
+  }
+  
+  return new Date(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second')
+  )
+}
+
 // The hostess's "today" is the shift day: before 04:00 she's still on the
-// previous calendar day's shift. This mirrors the server's shiftDayLocal().
+// previous calendar day's shift. Compute in Asia/Jerusalem time zone.
 export function shiftAdjustedDate(now: Date): Date {
   const d = new Date(now)
   if (d.getHours() < 4) {
@@ -65,14 +95,19 @@ export function shiftAdjustedDate(now: Date): Date {
 }
 
 export function computeShiftDateStr(now: Date): string {
-  return toDateString(shiftAdjustedDate(now))
+  // Compute in Israel time, not browser local time
+  const israelNow = getNowInIsraelTime()
+  return toDateString(shiftAdjustedDate(israelNow))
 }
 
-// Convert a "HH:mm" string + a reference date into a Date in local time.
+// Convert a "HH:mm" string + a reference date into a Date in Israel time.
+// This ensures late-detection math is done in the correct timezone.
 export function timeOn(dateStr: string, time: string): Date {
   const [y, mo, d] = dateStr.split('-').map(Number)
   const [h, m] = time.split(':').map(Number)
-  return new Date(y, mo - 1, d, h, m, 0, 0)
+  // Create a UTC Date, then interpret it as Israel time
+  // (we're assuming dateStr and time are in Israel timezone per the server)
+  return new Date(Date.UTC(y, mo - 1, d, h - 2, m, 0, 0))
 }
 
 export function minutesDiff(a: number, b: number): number {

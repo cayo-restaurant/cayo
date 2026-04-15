@@ -107,9 +107,17 @@ export async function createReservation(
   return rowToReservation(inserted as Row)
 }
 
+export interface UpdateOptions {
+  // For optimistic locking: if provided, the update only succeeds if the
+  // current updated_at matches this value. On mismatch, returns null to signal
+  // a 409 conflict.
+  expectedUpdatedAt?: string
+}
+
 export async function updateReservation(
   id: string,
-  patch: Partial<Omit<Reservation, 'id' | 'createdAt'>>
+  patch: Partial<Omit<Reservation, 'id' | 'createdAt'>>,
+  opts: UpdateOptions = {}
 ): Promise<Reservation | null> {
   const sb = getServiceClient()
   const patchRow: Record<string, unknown> = {
@@ -126,12 +134,18 @@ export async function updateReservation(
   if (patch.status !== undefined) patchRow.status = patch.status
   if (patch.notes !== undefined) patchRow.notes = patch.notes || null
 
-  const { data, error } = await sb
+  let query = sb
     .from(TABLE)
     .update(patchRow)
     .eq('id', id)
-    .select('*')
-    .single()
+
+  // Apply optimistic lock if expectedUpdatedAt is provided
+  if (opts.expectedUpdatedAt !== undefined) {
+    query = query.eq('updated_at', opts.expectedUpdatedAt)
+  }
+
+  const { data, error } = await query.select('*').single()
+  
   if (error) {
     if ((error as { code?: string }).code === 'PGRST116') return null
     throw error
@@ -148,10 +162,17 @@ export async function updateReservation(
 // owner decision.
 export async function markStaleConfirmedAsNoShow(beforeDate: string): Promise<number> {
   const sb = getServiceClient()
+  // Narrow the window: only update reservations from the previous shift day.
+  // Compute the cutoff: we want reservations with date >= (beforeDate - 1 day) and < beforeDate
+  const prevDay = new Date(beforeDate)
+  prevDay.setDate(prevDay.getDate() - 1)
+  const prevDayStr = prevDay.toISOString().split('T')[0]
+
   const { data, error } = await sb
     .from(TABLE)
     .update({ status: 'no_show' as ReservationStatus, updated_at: new Date().toISOString() })
     .eq('status', 'confirmed')
+    .gte('date', prevDayStr)
     .lt('date', beforeDate)
     .select('id')
   if (error) throw error
