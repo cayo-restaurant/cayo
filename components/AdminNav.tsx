@@ -12,7 +12,9 @@ interface NavLink {
 const LINKS: NavLink[] = [
   { href: '/', label: 'בית' },
   { href: '/reservation', label: 'הזמנת מקום' },
-  { href: '/admin', label: 'ניהול' },
+  { href: '/admin', label: 'ניהול הזמנות' },
+  { href: '/admin/employees', label: 'עובדים' },
+  { href: '/admin/hours', label: 'שעות עבודה' },
 ]
 
 export default function AdminNav() {
@@ -36,7 +38,6 @@ export default function AdminNav() {
     }
   }, [pathname])
 
-  // Close menu when navigating
   useEffect(() => {
     setOpen(false)
   }, [pathname])
@@ -52,7 +53,6 @@ export default function AdminNav() {
 
   return (
     <>
-      {/* Floating toggle button — bottom-left so it doesn't clash with content */}
       <button
         onClick={() => setOpen(v => !v)}
         aria-label="תפריט ניהול"
@@ -69,7 +69,6 @@ export default function AdminNav() {
         )}
       </button>
 
-      {/* Backdrop */}
       {open && (
         <div
           onClick={() => setOpen(false)}
@@ -77,7 +76,6 @@ export default function AdminNav() {
         />
       )}
 
-      {/* Side panel */}
       <nav
         className={`fixed top-0 right-0 bottom-0 z-50 w-72 bg-white border-l-2 border-cayo-burgundy/10 shadow-2xl transform transition-transform duration-200 ${
           open ? 'translate-x-0' : 'translate-x-full'
