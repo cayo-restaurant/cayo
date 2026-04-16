@@ -85,6 +85,7 @@ export default function HoursPage() {
   const [shifts, setShifts] = useState<Shift[]>([])
   const [anchor, setAnchor] = useState(todayStr())
   const [loading, setLoading] = useState(true)
+  const [employeesLoaded, setEmployeesLoaded] = useState(false)
 
   // dropdown state: which day cell has the "add employee" dropdown open
   const [dropdownDay, setDropdownDay] = useState<string | null>(null)
@@ -114,8 +115,14 @@ export default function HoursPage() {
   }, [status])
 
   useEffect(() => {
-    if (status === 'authenticated' && employees.length > 0) fetchWeekShifts()
-  }, [status, anchor, employees])
+    if (status === 'authenticated' && employeesLoaded) {
+      if (employees.length > 0) {
+        fetchWeekShifts()
+      } else {
+        setLoading(false)
+      }
+    }
+  }, [status, anchor, employeesLoaded, employees])
 
   async function fetchEmployees() {
     const res = await fetch('/api/employees')
@@ -123,6 +130,7 @@ export default function HoursPage() {
       const data: Employee[] = await res.json()
       setEmployees(data.filter(e => e.active))
     }
+    setEmployeesLoaded(true)
   }
 
   async function fetchWeekShifts() {
