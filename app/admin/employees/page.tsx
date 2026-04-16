@@ -14,7 +14,6 @@ interface Employee {
   phone: string
   email: string
   gender: Gender | null
-  hourly_rate: number
   active: boolean
   created_at: string
 }
@@ -43,7 +42,6 @@ const emptyForm = {
   phone: '',
   email: '',
   gender: '' as Gender | '',
-  hourly_rate: 0,
 }
 
 export default function EmployeesPage() {
@@ -83,7 +81,6 @@ export default function EmployeesPage() {
       phone: emp.phone || '',
       email: emp.email || '',
       gender: emp.gender || '',
-      hourly_rate: emp.hourly_rate,
     })
     setError('')
     setShowModal(true)
@@ -97,7 +94,6 @@ export default function EmployeesPage() {
     const payload = {
       ...form,
       gender: form.gender || undefined,
-      hourly_rate: Number(form.hourly_rate),
     }
 
     const url = editId ? `/api/employees/${editId}` : '/api/employees'
@@ -194,7 +190,6 @@ export default function EmployeesPage() {
                   <th className="text-right px-4 py-3 font-semibold text-gray-700">שם</th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-700">תפקיד</th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-700">טלפון</th>
-                  <th className="text-right px-4 py-3 font-semibold text-gray-700">שכר שעתי</th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-700">סטטוס</th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-700">פעולות</th>
                 </tr>
@@ -202,7 +197,7 @@ export default function EmployeesPage() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 text-gray-400">
+                    <td colSpan={5} className="text-center py-12 text-gray-400">
                       אין עובדים {showInactive ? '' : 'פעילים'}
                     </td>
                   </tr>
@@ -216,7 +211,6 @@ export default function EmployeesPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600 ltr" dir="ltr">{emp.phone || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{emp.hourly_rate ? `₪${emp.hourly_rate}` : '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${emp.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                         {emp.active ? 'פעיל' : 'לא פעיל'}
@@ -325,18 +319,6 @@ export default function EmployeesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">שכר שעתי (₪)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={form.hourly_rate}
-                  onChange={e => setForm(f => ({ ...f, hourly_rate: parseFloat(e.target.value) || 0 }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                />
               </div>
 
               <div className="flex items-center gap-3 pt-2">
