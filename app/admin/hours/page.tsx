@@ -43,19 +43,10 @@ const ROLE_COLOR: Record<Role, string> = {
   dishwasher: 'bg-teal-100 border-teal-300 text-teal-800',
 }
 
-interface SlotDef {
-  role: Role
-  count: number
+const ROLE_ORDER: Role[] = ['manager', 'bartender', 'waiter', 'host', 'kitchen', 'dishwasher']
+const DEFAULT_SLOTS: Record<Role, number> = {
+  manager: 1, bartender: 4, waiter: 4, host: 2, kitchen: 4, dishwasher: 2,
 }
-
-const SLOT_DEFS: SlotDef[] = [
-  { role: 'manager', count: 1 },
-  { role: 'waiter', count: 4 },
-  { role: 'bartender', count: 4 },
-  { role: 'host', count: 2 },
-  { role: 'kitchen', count: 4 },
-  { role: 'dishwasher', count: 2 },
-]
 
 const HEBREW_DAYS = ['\u05e8\u05d0\u05e9\u05d5\u05df', '\u05e9\u05e0\u05d9', '\u05e9\u05dc\u05d9\u05e9\u05d9', '\u05e8\u05d1\u05d9\u05e2\u05d9', '\u05d7\u05de\u05d9\u05e9\u05d9', '\u05e9\u05d9\u05e9\u05d9', '\u05e9\u05d1\u05ea']
 const HEBREW_MONTHS = ['\u05d9\u05e0\u05d5\u05d0\u05e8', '\u05e4\u05d1\u05e8\u05d5\u05d0\u05e8', '\u05de\u05e8\u05e5', '\u05d0\u05e4\u05e8\u05d9\u05dc', '\u05de\u05d0\u05d9', '\u05d9\u05d5\u05e0\u05d9', '\u05d9\u05d5\u05dc\u05d9', '\u05d0\u05d5\u05d2\u05d5\u05e1\u05d8', '\u05e1\u05e4\u05d8\u05de\u05d1\u05e8', '\u05d0\u05d5\u05e7\u05d8\u05d5\u05d1\u05e8', '\u05e0\u05d5\u05d1\u05de\u05d1\u05e8', '\u05d3\u05e6\u05de\u05d1\u05e8']
@@ -102,6 +93,10 @@ export default function HoursPage() {
   const [loading, setLoading] = useState(true)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
+  // Extra empty slots per date+role (on top of filled shifts)
+  // key: "date_role" -> number of empty slots to show
+  const [extraSlots, setExtraSlots] = useState<Record<string, number>>({})
+
   // Edit modal for times
   const [editModal, setEditModal] = useState<{
     shiftId: string
@@ -126,6 +121,21 @@ export default function HoursPage() {
     }
     return map
   }, [shifts])
+
+  // Initialize extra slots from defaults when week changes
+  useEffect(() => {
+    const newExtra: Record<string, number> = {}
+    for (const date of dates) {
+      for (const role of ROLE_ORDER) {
+        const key = `${date}_${role}`
+        const filled = (shiftsByDateRole[key] || []).length
+        const def = DEFAULT_SLOTS[role]
+        // Show at least (default - filled) empty slots, minimum 1
+        newExtra[key] = Math.max(def - filled, 1)
+      }
+    }
+    setExtraSlots(newExtra)
+  }, [dates, shiftsByDateRole])
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -213,7 +223,30 @@ export default function HoursPage() {
     await fetchWeekShifts()
   }
 
-  // Get available employees for a role on a date (not already assigned that day for that role)
+  function addEmptySlot(role: Role) {
+    // Add one empty slot for this role across all days
+    setExtraSlots(prev => {
+      const next = { ...prev }
+      for (const date of dates) {
+        const key = `${date}_${role}`
+        next[key] = (next[key] || 0) + 1
+      }
+      return next
+    })
+  }
+
+  function removeEmptySlot(role: Role) {
+    // Remove one empty slot for this role across all days (min 0)
+    setExtraSlots(prev => {
+      const next = { ...prev }
+      for (const date of dates) {
+        const key = `${date}_${role}`
+        if ((next[key] || 0) > 0) next[key] = (next[key] || 0) - 1
+      }
+      return next
+    })
+  }
+
   function availableForSlot(date: string, role: Role): Employee[] {
     const dayShifts = shifts.filter(s => s.date === date)
     const assignedIds = new Set(dayShifts.map(s => s.employee_id))
@@ -245,21 +278,13 @@ export default function HoursPage() {
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <h1 className="text-xl font-bold text-cayo-burgundy">{"\u05e9\u05e2\u05d5\u05ea \u05e2\u05d1\u05d5\u05d3\u05d4"}</h1>
           <div className="flex items-center gap-3">
-            <Link href="/admin/employees" className="text-sm text-cayo-burgundy hover:underline">
-              {"\u05e0\u05d9\u05d4\u05d5\u05dc \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd"}
-            </Link>
-            <a
-              href={`/api/shifts/export?month=${dates[0].slice(0, 7)}`}
-              className="px-3 py-1.5 border border-cayo-burgundy text-cayo-burgundy text-sm font-bold rounded-lg hover:bg-cayo-burgundy/5 transition-colors"
-            >
-              {"\u05d9\u05d9\u05e6\u05d5\u05d0 CSV"}
-            </a>
+            <Link href="/admin/employees" className="text-sm text-cayo-burgundy hover:underline">{"\u05e0\u05d9\u05d4\u05d5\u05dc \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd"}</Link>
+            <a href={`/api/shifts/export?month=${dates[0].slice(0, 7)}`} className="px-3 py-1.5 border border-cayo-burgundy text-cayo-burgundy text-sm font-bold rounded-lg hover:bg-cayo-burgundy/5 transition-colors">{"\u05d9\u05d9\u05e6\u05d5\u05d0 CSV"}</a>
           </div>
         </div>
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
-        {/* Week nav */}
         <div className="flex items-center gap-3 mb-5">
           <div className="flex items-center bg-white border border-gray-200 rounded-lg">
             <button onClick={() => setAnchor(shiftWeek(anchor, 1))} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600">&rarr;</button>
@@ -276,12 +301,13 @@ export default function HoursPage() {
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             {/* Day headers */}
-            <div className="grid grid-cols-7 border-b border-gray-200">
+            <div className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-gray-200">
+              <div className="bg-gray-50 border-l border-gray-200" />
               {dates.map((date, i) => {
                 const [, mo, da] = date.split('-').map(Number)
                 const isToday = date === today
                 return (
-                  <div key={date} className={`px-2 py-3 text-center border-l border-gray-200 first:border-l-0 ${isToday ? 'bg-cayo-burgundy text-white' : 'bg-gray-50'}`}>
+                  <div key={date} className={`px-2 py-3 text-center border-l border-gray-200 ${isToday ? 'bg-cayo-burgundy text-white' : 'bg-gray-50'}`}>
                     <div className={`text-xs font-bold ${isToday ? 'text-white/70' : 'text-gray-400'}`}>{HEBREW_DAYS[i]}</div>
                     <div className="text-lg font-bold">{da}</div>
                     <div className={`text-[10px] ${isToday ? 'text-white/50' : 'text-gray-400'}`}>{HEBREW_MONTHS[mo - 1]}</div>
@@ -291,80 +317,85 @@ export default function HoursPage() {
             </div>
 
             {/* Role sections */}
-            {SLOT_DEFS.map(({ role, count }) => (
-              <div key={role} className="border-b border-gray-200 last:border-b-0">
-                {/* Role label row */}
-                <div className="bg-gray-50 border-b border-gray-100 px-3 py-1.5">
-                  <span className="text-xs font-bold text-gray-500">{ROLE_LABEL[role]}</span>
-                  <span className="text-[10px] text-gray-400 mr-2">({count})</span>
-                </div>
-                {/* Slot rows */}
-                {Array.from({ length: count }, (_, slotIdx) => (
-                  <div key={slotIdx} className="grid grid-cols-7 border-b border-gray-100 last:border-b-0">
-                    {dates.map(date => {
-                      const dayRoleShifts = shiftsByDateRole[`${date}_${role}`] || []
-                      const shift = dayRoleShifts[slotIdx]
-                      const isToday = date === today
-                      const dropdownKey = `${date}_${role}_${slotIdx}`
-                      const available = availableForSlot(date, role)
+            {ROLE_ORDER.map(role => {
+              // Calculate max slots to show for this role
+              const maxSlots = Math.max(
+                ...dates.map(date => {
+                  const filled = (shiftsByDateRole[`${date}_${role}`] || []).length
+                  const extra = extraSlots[`${date}_${role}`] || 0
+                  return filled + extra
+                }),
+                1
+              )
 
-                      return (
-                        <div
-                          key={date}
-                          className={`border-l border-gray-200 first:border-l-0 px-1 py-1 min-h-[44px] relative ${isToday ? 'bg-cayo-burgundy/[0.02]' : ''}`}
-                        >
-                          {shift ? (
-                            <div className={`group rounded border px-2 py-1 ${ROLE_COLOR[role]} text-xs`}>
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold truncate">{shift.employees?.full_name}</span>
-                                <button
-                                  onClick={() => removeShift(shift.id)}
-                                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-[10px] mr-1 transition-opacity"
-                                >
-                                  &times;
+              return (
+                <div key={role} className="border-b border-gray-200 last:border-b-0">
+                  {/* Slot rows */}
+                  {Array.from({ length: maxSlots }, (_, slotIdx) => (
+                    <div key={slotIdx} className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-gray-100 last:border-b-0">
+                      {/* Role label only on first row */}
+                      <div className={`border-l border-gray-200 px-2 flex items-center ${slotIdx === 0 ? '' : ''}`}>
+                        {slotIdx === 0 && (
+                          <div className="flex items-center gap-1 w-full">
+                            <span className="text-xs font-bold text-gray-600 truncate">{ROLE_LABEL[role]}</span>
+                            <div className="flex items-center gap-0.5 mr-auto">
+                              <button onClick={() => addEmptySlot(role)} className="w-4 h-4 rounded bg-gray-200 hover:bg-cayo-burgundy hover:text-white text-gray-500 text-[10px] flex items-center justify-center transition-colors" title="\u05d4\u05d5\u05e1\u05e3 \u05de\u05e9\u05d1\u05e6\u05ea">+</button>
+                              <button onClick={() => removeEmptySlot(role)} className="w-4 h-4 rounded bg-gray-200 hover:bg-red-500 hover:text-white text-gray-500 text-[10px] flex items-center justify-center transition-colors" title="\u05d4\u05e1\u05e8 \u05de\u05e9\u05d1\u05e6\u05ea">-</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {/* Day cells */}
+                      {dates.map(date => {
+                        const dayRoleShifts = shiftsByDateRole[`${date}_${role}`] || []
+                        const shift = dayRoleShifts[slotIdx]
+                        const isToday = date === today
+                        const dropdownKey = `${date}_${role}_${slotIdx}`
+                        const available = availableForSlot(date, role)
+
+                        return (
+                          <div key={date} className={`border-l border-gray-200 px-1 py-1 min-h-[44px] relative ${isToday ? 'bg-cayo-burgundy/[0.02]' : ''}`}>
+                            {shift ? (
+                              <div className={`group rounded border px-2 py-1 ${ROLE_COLOR[role]} text-xs`}>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold truncate">{shift.employees?.full_name}</span>
+                                  <button onClick={() => removeShift(shift.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-[10px] mr-1 transition-opacity">&times;</button>
+                                </div>
+                                <button onClick={() => openTimeEdit(shift)} className="text-[10px] opacity-70 hover:opacity-100 transition-opacity">
+                                  {shift.start_time.slice(0, 5)}-{shift.end_time.slice(0, 5)}
                                 </button>
                               </div>
-                              <button
-                                onClick={() => openTimeEdit(shift)}
-                                className="text-[10px] opacity-70 hover:opacity-100 transition-opacity"
-                              >
-                                {shift.start_time.slice(0, 5)}-{shift.end_time.slice(0, 5)}
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="relative">
-                              <button
-                                onClick={() => setOpenDropdown(openDropdown === dropdownKey ? null : dropdownKey)}
-                                className="w-full h-[36px] border border-dashed border-gray-200 rounded hover:border-cayo-burgundy/40 hover:bg-cayo-burgundy/[0.02] transition-colors flex items-center justify-center"
-                              >
-                                <span className="text-gray-300 text-sm">+</span>
-                              </button>
-                              {openDropdown === dropdownKey && (
-                                <div className="absolute top-full mt-1 right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[160px] max-h-[200px] overflow-y-auto">
-                                  {available.length === 0 ? (
-                                    <div className="px-3 py-2 text-xs text-gray-400">{"\u05d0\u05d9\u05df \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05d6\u05de\u05d9\u05e0\u05d9\u05dd"}</div>
-                                  ) : (
-                                    available.map(emp => (
-                                      <button
-                                        key={emp.id}
-                                        onClick={() => addShift(date, emp.id)}
-                                        className="w-full text-right px-3 py-2 text-xs font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0"
-                                      >
-                                        {emp.full_name}
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            ))}
+                            ) : slotIdx < (dayRoleShifts.length + (extraSlots[`${date}_${role}`] || 0)) ? (
+                              <div className="relative">
+                                <button
+                                  onClick={() => setOpenDropdown(openDropdown === dropdownKey ? null : dropdownKey)}
+                                  className="w-full h-[36px] border border-dashed border-gray-200 rounded hover:border-cayo-burgundy/40 hover:bg-cayo-burgundy/[0.02] transition-colors flex items-center justify-center"
+                                >
+                                  <span className="text-gray-300 text-sm">+</span>
+                                </button>
+                                {openDropdown === dropdownKey && (
+                                  <div className="absolute top-full mt-1 right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[160px] max-h-[200px] overflow-y-auto">
+                                    {available.length === 0 ? (
+                                      <div className="px-3 py-2 text-xs text-gray-400">{"\u05d0\u05d9\u05df \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05d6\u05de\u05d9\u05e0\u05d9\u05dd"}</div>
+                                    ) : (
+                                      available.map(emp => (
+                                        <button key={emp.id} onClick={() => addShift(date, emp.id)} className="w-full text-right px-3 py-2 text-xs font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0">
+                                          {emp.full_name}
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
