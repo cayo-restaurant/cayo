@@ -26,12 +26,12 @@ export const RESERVATION_DURATION_MINUTES = Number(
 )
 
 // Keep in sync with the booking form + reservations route.
-// Reservation hours: 19:00 → 21:30, every 15 min (Israel local time).
+// Reservation hours: 19:00 → 22:00, every 15 min (Israel local time).
 export const VALID_TIMES: string[] = (() => {
   const out: string[] = []
-  for (let h = 19; h <= 21; h++) {
+  for (let h = 19; h <= 22; h++) {
     for (let m = 0; m < 60; m += 15) {
-      if (h === 21 && m > 30) break
+      if (h === 22 && m > 0) break
       out.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
     }
   }

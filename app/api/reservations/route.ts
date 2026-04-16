@@ -15,7 +15,7 @@ import { sendConfirmation } from '@/lib/resend'
 const reservationSchema = z.object({
   name: z.string().min(2, 'נא להזין שם'),
   date: z.string().min(1, 'נא לבחור יום'),
-  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-21:30' }),
+  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-22:00' }),
   area: z.enum(['bar', 'table']),
   guests: z.number().min(1).max(10),
   phone: z.string().regex(/^05[0-9]{8}$/, 'מספר טלפון לא תקין'),
@@ -32,7 +32,7 @@ const reservationSchema = z.object({
 const adminReservationSchema = z.object({
   name: z.string().trim().max(100).optional().default(''),
   date: z.string().min(1, 'נא לבחור יום'),
-  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-21:30' }),
+  time: z.string().refine(v => VALID_TIMES.includes(v), { message: 'שעה חייבת להיות בין 19:00 ל-22:00' }),
   area: z.enum(['bar', 'table']),
   guests: z.number().min(1).max(10),
   phone: z.string().trim().refine(v => v === '' || /^05[0-9]{8}$/.test(v), {

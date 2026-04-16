@@ -16,9 +16,9 @@ interface AvailabilityResponse {
 // ───── Time / date helpers ─────
 function generateTimeSlots() {
   const slots: string[] = []
-  for (let h = 19; h <= 21; h++) {
+  for (let h = 19; h <= 22; h++) {
     for (let m = 0; m < 60; m += 15) {
-      if (h === 21 && m > 30) break
+      if (h === 22 && m > 0) break
       slots.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
     }
   }
@@ -63,8 +63,8 @@ function generateDateOptions() {
 }
 const dateOptions = generateDateOptions()
 
-// Split time slots into two roughly-equal groups (6 early / 5 late for the
-// 11-slot 19:00–21:30 window). Boundary at 20:30 keeps the visual rows even.
+// Split time slots into two roughly-equal groups for the 19:00–22:00 window.
+// Boundary at 20:30 keeps the visual rows balanced.
 const EARLY_SLOTS = timeSlots.filter(t => t < '20:30')
 const LATE_SLOTS = timeSlots.filter(t => t >= '20:30')
 
