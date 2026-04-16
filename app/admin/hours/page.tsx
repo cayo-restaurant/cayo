@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 
@@ -26,12 +26,12 @@ interface Shift {
 }
 
 const ROLE_LABEL: Record<Role, string> = {
-  manager: 'אחמ"ש',
-  bartender: 'ברמן',
-  waiter: 'מלצר',
-  host: 'מארח',
-  kitchen: 'מטבח',
-  dishwasher: 'שוטף',
+  manager: '\u05d0\u05d7\u05de"\u05e9',
+  bartender: '\u05d1\u05e8\u05de\u05df',
+  waiter: '\u05de\u05dc\u05e6\u05e8',
+  host: '\u05de\u05d0\u05e8\u05d7',
+  kitchen: '\u05de\u05d8\u05d1\u05d7',
+  dishwasher: '\u05e9\u05d5\u05d8\u05e3',
 }
 
 const ROLE_COLOR: Record<Role, string> = {
@@ -53,8 +53,8 @@ const ROLE_COLOR_LIGHT: Record<Role, string> = {
 }
 
 const ROLE_ORDER: Role[] = ['manager', 'bartender', 'waiter', 'host', 'kitchen', 'dishwasher']
-const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
+const HEBREW_DAYS = ['\u05e8\u05d0\u05e9\u05d5\u05df', '\u05e9\u05e0\u05d9', '\u05e9\u05dc\u05d9\u05e9\u05d9', '\u05e8\u05d1\u05d9\u05e2\u05d9', '\u05d7\u05de\u05d9\u05e9\u05d9', '\u05e9\u05d9\u05e9\u05d9', '\u05e9\u05d1\u05ea']
+const HEBREW_MONTHS = ['\u05d9\u05e0\u05d5\u05d0\u05e8', '\u05e4\u05d1\u05e8\u05d5\u05d0\u05e8', '\u05de\u05e8\u05e5', '\u05d0\u05e4\u05e8\u05d9\u05dc', '\u05de\u05d0\u05d9', '\u05d9\u05d5\u05e0\u05d9', '\u05d9\u05d5\u05dc\u05d9', '\u05d0\u05d5\u05d2\u05d5\u05e1\u05d8', '\u05e1\u05e4\u05d8\u05de\u05d1\u05e8', '\u05d0\u05d5\u05e7\u05d8\u05d5\u05d1\u05e8', '\u05e0\u05d5\u05d1\u05de\u05d1\u05e8', '\u05d3\u05e6\u05de\u05d1\u05e8']
 
 function toStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -98,7 +98,6 @@ export default function HoursPage() {
   const [anchor, setAnchor] = useState(todayStr())
   const [loading, setLoading] = useState(true)
 
-  // Edit modal state
   const [editModal, setEditModal] = useState<{
     empId: string
     date: string
@@ -112,7 +111,6 @@ export default function HoursPage() {
   const dates = useMemo(() => weekDates(anchor), [anchor])
   const today = todayStr()
 
-  // Group shifts by employee+date for quick lookup
   const shiftMap = useMemo(() => {
     const map: Record<string, Shift> = {}
     for (const s of shifts) {
@@ -121,7 +119,6 @@ export default function HoursPage() {
     return map
   }, [shifts])
 
-  // Sort employees by role order
   const sortedEmployees = useMemo(() => {
     return [...employees].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
   }, [employees])
@@ -185,7 +182,6 @@ export default function HoursPage() {
       end_time: end,
       break_minutes: breakMin,
     }
-
     if (shiftId) {
       await fetch(`/api/shifts/${shiftId}`, {
         method: 'PUT',
@@ -225,8 +221,8 @@ export default function HoursPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">
-          {"יש להתחבר דרך "}
-          <Link href="/admin" className="text-cayo-burgundy underline">עמוד הניהול</Link>
+          {"\u05d9\u05e9 \u05dc\u05d4\u05ea\u05d7\u05d1\u05e8 \u05d3\u05e8\u05da "}
+          <Link href="/admin" className="text-cayo-burgundy underline">{"\u05e2\u05de\u05d5\u05d3 \u05d4\u05e0\u05d9\u05d4\u05d5\u05dc"}</Link>
         </p>
       </div>
     )
@@ -234,26 +230,24 @@ export default function HoursPage() {
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold text-cayo-burgundy">שעות עבודה</h1>
+          <h1 className="text-xl font-bold text-cayo-burgundy">{"\u05e9\u05e2\u05d5\u05ea \u05e2\u05d1\u05d5\u05d3\u05d4"}</h1>
           <div className="flex items-center gap-3">
             <Link href="/admin/employees" className="text-sm text-cayo-burgundy hover:underline">
-              ניהול עובדים
+              {"\u05e0\u05d9\u05d4\u05d5\u05dc \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd"}
             </Link>
             <a
               href={`/api/shifts/export?month=${dates[0].slice(0, 7)}`}
               className="px-3 py-1.5 border border-cayo-burgundy text-cayo-burgundy text-sm font-bold rounded-lg hover:bg-cayo-burgundy/5 transition-colors"
             >
-              ייצוא CSV
+              {"\u05d9\u05d9\u05e6\u05d5\u05d0 CSV"}
             </a>
           </div>
         </div>
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
-        {/* Week navigation */}
         <div className="flex items-center gap-3 mb-5">
           <div className="flex items-center bg-white border border-gray-200 rounded-lg">
             <button onClick={() => setAnchor(shiftWeek(anchor, 1))} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600">
@@ -267,7 +261,7 @@ export default function HoursPage() {
             </button>
           </div>
           <button onClick={() => setAnchor(todayStr())} className="px-3 py-2 text-sm text-cayo-burgundy hover:underline">
-            השבוע
+            {"\u05d4\u05e9\u05d1\u05d5\u05e2"}
           </button>
         </div>
 
@@ -275,19 +269,13 @@ export default function HoursPage() {
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-4 border-cayo-burgundy border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : employees.length === 0 ? (
-          <div className="text-center py-20 text-gray-400">
-            {"אין עובדים פעילים. "}
-            <Link href="/admin/employees" className="text-cayo-burgundy underline">הוסף עובדים</Link>
-          </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             <table className="w-full min-w-[900px]">
-              {/* Header: days */}
               <thead>
                 <tr>
                   <th className="sticky right-0 z-10 bg-white border-b border-l border-gray-200 px-4 py-3 text-right text-sm font-bold text-gray-700 w-[160px]">
-                    עובד
+                    {"\u05e2\u05d5\u05d1\u05d3"}
                   </th>
                   {dates.map((date, i) => {
                     const [, mo, da] = date.split('-').map(Number)
@@ -310,7 +298,6 @@ export default function HoursPage() {
                   const isFirstOfRole = empIdx === 0 || sortedEmployees[empIdx - 1].role !== emp.role
                   return (
                     <tr key={emp.id} className={isFirstOfRole && empIdx > 0 ? 'border-t-2 border-gray-300' : ''}>
-                      {/* Employee name cell */}
                       <td className="sticky right-0 z-10 bg-white border-b border-l border-gray-200 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ROLE_COLOR[emp.role]}`} />
@@ -320,7 +307,6 @@ export default function HoursPage() {
                           </div>
                         </div>
                       </td>
-                      {/* Day cells */}
                       {dates.map(date => {
                         const shift = shiftMap[`${emp.id}_${date}`]
                         const isToday = date === today
@@ -347,19 +333,26 @@ export default function HoursPage() {
                     </tr>
                   )
                 })}
+                {sortedEmployees.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="text-center py-12 text-gray-400 border-b border-gray-200">
+                      {"\u05d0\u05d9\u05df \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05e4\u05e2\u05d9\u05dc\u05d9\u05dd. "}
+                      <Link href="/admin/employees" className="text-cayo-burgundy underline">{"\u05d4\u05d5\u05e1\u05e3 \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd"}</Link>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Edit Modal */}
       {editModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditModal(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-[340px] p-5" dir="rtl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-cayo-burgundy">
-                {editModal.shiftId ? 'עריכת משמרת' : 'הוספת משמרת'}
+                {editModal.shiftId ? '\u05e2\u05e8\u05d9\u05db\u05ea \u05de\u05e9\u05de\u05e8\u05ea' : '\u05d4\u05d5\u05e1\u05e4\u05ea \u05de\u05e9\u05de\u05e8\u05ea'}
               </h3>
               <button onClick={() => setEditModal(null)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
             </div>
@@ -376,7 +369,7 @@ export default function HoursPage() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-600 w-16">התחלה</label>
+                <label className="text-sm text-gray-600 w-16">{"\u05d4\u05ea\u05d7\u05dc\u05d4"}</label>
                 <input
                   type="time"
                   value={editModal.start}
@@ -385,7 +378,7 @@ export default function HoursPage() {
                 />
               </div>
               <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-600 w-16">סיום</label>
+                <label className="text-sm text-gray-600 w-16">{"\u05e1\u05d9\u05d5\u05dd"}</label>
                 <input
                   type="time"
                   value={editModal.end}
@@ -394,7 +387,7 @@ export default function HoursPage() {
                 />
               </div>
               <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-600 w-16">הפסקה</label>
+                <label className="text-sm text-gray-600 w-16">{"\u05d4\u05e4\u05e1\u05e7\u05d4"}</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -403,7 +396,7 @@ export default function HoursPage() {
                     onChange={e => setEditModal({ ...editModal, breakMin: parseInt(e.target.value) || 0 })}
                     className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
                   />
-                  <span className="text-xs text-gray-400">{"דק\u0027"}</span>
+                  <span className="text-xs text-gray-400">{"\u05d3\u05e7'"}</span>
                 </div>
               </div>
             </div>
@@ -414,7 +407,7 @@ export default function HoursPage() {
                 disabled={saving}
                 className="flex-1 py-2.5 bg-cayo-burgundy text-white text-sm font-bold rounded-lg hover:bg-cayo-burgundy/90 transition-colors disabled:opacity-50"
               >
-                {saving ? '...' : 'שמור'}
+                {saving ? '...' : '\u05e9\u05de\u05d5\u05e8'}
               </button>
               {editModal.shiftId && (
                 <button
@@ -422,7 +415,7 @@ export default function HoursPage() {
                   disabled={saving}
                   className="py-2.5 px-4 border border-red-300 text-red-500 text-sm font-bold rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
                 >
-                  מחק
+                  {"\u05de\u05d7\u05e7"}
                 </button>
               )}
             </div>
