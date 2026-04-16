@@ -25,9 +25,7 @@ export default function Footer() {
           <div>
             <h3 className="text-cayo-orange font-bold text-lg mb-5">ניווט</h3>
             <nav className="flex flex-col gap-3">
-              <Link href="/menu" className="text-sm text-cayo-cream/50 hover:text-cayo-teal transition-colors">תפריט</Link>
               <Link href="/reservation" className="text-sm text-cayo-cream/50 hover:text-cayo-teal transition-colors">הזמנת מקום</Link>
-              <Link href="/about" className="text-sm text-cayo-cream/50 hover:text-cayo-teal transition-colors">אודות</Link>
               <Link href="/contact" className="text-sm text-cayo-cream/50 hover:text-cayo-teal transition-colors">צור קשר</Link>
             </nav>
           </div>

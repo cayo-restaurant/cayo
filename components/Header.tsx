@@ -4,8 +4,6 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 
 const navLinks = [
-  { href: '/menu', label: 'תפריט' },
-  { href: '/about', label: 'אודות' },
   { href: '/contact', label: 'צור קשר' },
 ]
 

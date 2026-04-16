@@ -11,8 +11,6 @@ interface NavLink {
 
 const LINKS: NavLink[] = [
   { href: '/', label: 'בית' },
-  { href: '/menu', label: 'תפריט' },
-  { href: '/about', label: 'אודות' },
   { href: '/reservation', label: 'הזמנת מקום' },
   { href: '/admin', label: 'ניהול' },
 ]
