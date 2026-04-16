@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 
@@ -26,95 +26,96 @@ interface Shift {
 }
 
 const ROLE_LABEL: Record<Role, string> = {
-  bartender: 'ברמנים',
-  waiter: 'מלצרים',
-  host: 'מארחים',
+  bartender: 'ברמן',
+  waiter: 'מלצר',
+  host: 'מארח',
   kitchen: 'מטבח',
-  dishwasher: 'שוטפים',
-  manager: 'אחמ"שים',
+  dishwasher: 'שוטף',
+  manager: 'אחמ"ש',
 }
-
-const ROLE_ORDER: Role[] = ['manager', 'bartender', 'waiter', 'host', 'kitchen', 'dishwasher']
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
 
-function calcHours(start: string, end: string, breakMin: number): number {
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  let totalMin = (eh * 60 + em) - (sh * 60 + sm)
-  if (totalMin < 0) totalMin += 24 * 60
-  totalMin -= breakMin
-  return Math.max(0, totalMin / 60)
-}
+/* ── helpers ─────────────────────────────────────── */
 
-function todayStr() {
-  const d = new Date()
+function toStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function currentMonth() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
+function todayStr() { return toStr(new Date()) }
 
-function formatHebDate(s: string) {
-  const [y, m, d] = s.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayKey = todayStr()
-
-  const dayName = HEBREW_DAYS[date.getDay()]
-  const label = `יום ${dayName}, ${d} ${HEBREW_MONTHS[m - 1]}`
-
-  if (s === todayKey) return `היום · ${label}`
-  return label
-}
-
-function shiftDateStr(dateStr: string, delta: number) {
+/** Get the Sunday that starts the week containing `dateStr` */
+function weekStart(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d + delta)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const date = new Date(y, m - 1, d)
+  const day = date.getDay() // 0=Sun
+  date.setDate(date.getDate() - day)
+  return date
 }
 
-// Row state per employee for a given day
-interface RowState {
-  worked: boolean
-  start_time: string
-  end_time: string
-  break_minutes: number
-  notes: string
-  shiftId: string | null // null = not saved yet
-  saving: boolean
-  dirty: boolean
+/** Return array of 7 date strings (Sun..Sat) for the week */
+function weekDates(anchor: string): string[] {
+  const sun = weekStart(anchor)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sun)
+    d.setDate(sun.getDate() + i)
+    return toStr(d)
+  })
 }
+
+function weekLabel(dates: string[]): string {
+  const [, m1, d1] = dates[0].split('-').map(Number)
+  const [, m2, d2] = dates[6].split('-').map(Number)
+  if (m1 === m2) return `${d1}-${d2} ${HEBREW_MONTHS[m1 - 1]}`
+  return `${d1} ${HEBREW_MONTHS[m1 - 1]} - ${d2} ${HEBREW_MONTHS[m2 - 1]}`
+}
+
+function shiftWeek(anchor: string, delta: number): string {
+  const [y, m, d] = anchor.split('-').map(Number)
+  const date = new Date(y, m - 1, d + delta * 7)
+  return toStr(date)
+}
+
+/* ── component ───────────────────────────────────── */
 
 export default function HoursPage() {
   const { status } = useSession()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [selectedDate, setSelectedDate] = useState(todayStr())
+  const [anchor, setAnchor] = useState(todayStr())
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'daily' | 'summary'>('daily')
-  const [month, setMonth] = useState(currentMonth())
-  const [monthShifts, setMonthShifts] = useState<Shift[]>([])
-  const [monthLoading, setMonthLoading] = useState(false)
 
-  // Row states keyed by employee id
-  const [rows, setRows] = useState<Record<string, RowState>>({})
+  // dropdown state: which day cell has the "add employee" dropdown open
+  const [dropdownDay, setDropdownDay] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // inline editing: which shift's start/end is being edited
+  const [editingShift, setEditingShift] = useState<{ id: string; field: 'start' | 'end' } | null>(null)
+  const [editValue, setEditValue] = useState('')
+
+  const dates = useMemo(() => weekDates(anchor), [anchor])
+  const today = todayStr()
+
+  // Map: date -> shifts for that date
+  const shiftsByDate = useMemo(() => {
+    const map: Record<string, Shift[]> = {}
+    for (const d of dates) map[d] = []
+    for (const s of shifts) {
+      if (map[s.date]) map[s.date].push(s)
+    }
+    return map
+  }, [shifts, dates])
+
+  /* ── data fetching ── */
 
   useEffect(() => {
     if (status === 'authenticated') fetchEmployees()
   }, [status])
 
   useEffect(() => {
-    if (status === 'authenticated' && tab === 'daily') fetchDayShifts()
-  }, [status, selectedDate, tab])
-
-  useEffect(() => {
-    if (status === 'authenticated' && tab === 'summary') fetchMonthShifts()
-  }, [status, month, tab])
+    if (status === 'authenticated' && employees.length > 0) fetchWeekShifts()
+  }, [status, anchor, employees])
 
   async function fetchEmployees() {
     const res = await fetch('/api/employees')
@@ -124,164 +125,89 @@ export default function HoursPage() {
     }
   }
 
-  async function fetchDayShifts() {
+  async function fetchWeekShifts() {
     setLoading(true)
-    // Get the month of the selected date to fetch shifts
-    const [y, m] = selectedDate.split('-')
-    const res = await fetch(`/api/shifts?month=${y}-${m}`)
-    const allShifts: Shift[] = res.ok ? await res.json() : []
-    const dayShifts = allShifts.filter(s => s.date === selectedDate)
-    setShifts(dayShifts)
-
-    // Build row states
-    const newRows: Record<string, RowState> = {}
-    for (const emp of employees) {
-      const existing = dayShifts.find(s => s.employee_id === emp.id)
-      newRows[emp.id] = existing
-        ? {
-            worked: true,
-            start_time: existing.start_time.slice(0, 5),
-            end_time: existing.end_time.slice(0, 5),
-            break_minutes: existing.break_minutes,
-            notes: existing.notes || '',
-            shiftId: existing.id,
-            saving: false,
-            dirty: false,
-          }
-        : {
-            worked: false,
-            start_time: '18:00',
-            end_time: '02:00',
-            break_minutes: 0,
-            notes: '',
-            shiftId: null,
-            saving: false,
-            dirty: false,
-          }
+    // We need shifts for potentially 2 months if the week spans a month boundary
+    const months = new Set(dates.map(d => d.slice(0, 7)))
+    const allShifts: Shift[] = []
+    for (const m of months) {
+      const res = await fetch(`/api/shifts?month=${m}`)
+      if (res.ok) {
+        const data: Shift[] = await res.json()
+        allShifts.push(...data)
+      }
     }
-    setRows(newRows)
+    // Filter to only this week's dates
+    const dateSet = new Set(dates)
+    setShifts(allShifts.filter(s => dateSet.has(s.date)))
     setLoading(false)
   }
 
-  async function fetchMonthShifts() {
-    setMonthLoading(true)
-    const res = await fetch(`/api/shifts?month=${month}`)
-    if (res.ok) setMonthShifts(await res.json())
-    setMonthLoading(false)
-  }
+  /* ── actions ── */
 
-  // When employees load and we're on daily tab, refresh rows
-  useEffect(() => {
-    if (employees.length > 0 && tab === 'daily') fetchDayShifts()
-  }, [employees])
-
-  function updateRow(empId: string, patch: Partial<RowState>) {
-    setRows(prev => ({
-      ...prev,
-      [empId]: { ...prev[empId], ...patch, dirty: true },
-    }))
-  }
-
-  const saveRow = useCallback(async (empId: string) => {
-    const row = rows[empId]
-    if (!row || row.saving) return
-
-    setRows(prev => ({ ...prev, [empId]: { ...prev[empId], saving: true } }))
-
-    if (row.worked) {
-      const payload = {
+  async function addShift(date: string, empId: string) {
+    setDropdownDay(null)
+    const res = await fetch('/api/shifts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         employee_id: empId,
-        date: selectedDate,
-        start_time: row.start_time,
-        end_time: row.end_time,
-        break_minutes: row.break_minutes,
-        notes: row.notes || undefined,
-      }
-
-      if (row.shiftId) {
-        // Update existing
-        await fetch(`/api/shifts/${row.shiftId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-      } else {
-        // Create new
-        const res = await fetch('/api/shifts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setRows(prev => ({
-            ...prev,
-            [empId]: { ...prev[empId], shiftId: data.id, saving: false, dirty: false },
-          }))
-          return
-        }
-      }
-    } else {
-      // Remove shift if unchecked
-      if (row.shiftId) {
-        await fetch(`/api/shifts/${row.shiftId}`, { method: 'DELETE' })
-        setRows(prev => ({
-          ...prev,
-          [empId]: { ...prev[empId], shiftId: null, saving: false, dirty: false },
-        }))
-        return
-      }
+        date,
+        start_time: '18:00',
+        end_time: '02:00',
+        break_minutes: 0,
+      }),
+    })
+    if (res.ok || res.status === 409) {
+      await fetchWeekShifts()
     }
-
-    setRows(prev => ({ ...prev, [empId]: { ...prev[empId], saving: false, dirty: false } }))
-  }, [rows, selectedDate])
-
-  // Group employees by role
-  const grouped = useMemo(() => {
-    const map = new Map<Role, Employee[]>()
-    for (const role of ROLE_ORDER) {
-      const emps = employees.filter(e => e.role === role)
-      if (emps.length > 0) map.set(role, emps)
-    }
-    return map
-  }, [employees])
-
-  // Monthly summary
-  const summary = useMemo(() => {
-    const map = new Map<string, { name: string; role: Role; rate: number; totalHours: number; totalPay: number; shiftCount: number }>()
-    for (const s of monthShifts) {
-      const emp = s.employees
-      if (!emp) continue
-      const existing = map.get(s.employee_id) || {
-        name: emp.full_name,
-        role: emp.role,
-        rate: emp.hourly_rate,
-        totalHours: 0,
-        totalPay: 0,
-        shiftCount: 0,
-      }
-      const hours = calcHours(s.start_time, s.end_time, s.break_minutes)
-      existing.totalHours += hours
-      existing.totalPay += hours * emp.hourly_rate
-      existing.shiftCount += 1
-      map.set(s.employee_id, existing)
-    }
-    return Array.from(map.values()).sort((a, b) => b.totalHours - a.totalHours)
-  }, [monthShifts])
-
-  const grandTotalHours = summary.reduce((s, e) => s + e.totalHours, 0)
-  const grandTotalPay = summary.reduce((s, e) => s + e.totalPay, 0)
-
-  function monthLabel(m: string) {
-    const [y, mo] = m.split('-').map(Number)
-    return `${HEBREW_MONTHS[mo - 1]} ${y}`
   }
 
-  function shiftMonth(delta: number) {
-    const [y, m] = month.split('-').map(Number)
-    const d = new Date(y, m - 1 + delta, 1)
-    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  async function removeShift(shiftId: string) {
+    await fetch(`/api/shifts/${shiftId}`, { method: 'DELETE' })
+    setShifts(prev => prev.filter(s => s.id !== shiftId))
   }
+
+  async function saveTime(shiftId: string, field: 'start' | 'end', value: string) {
+    setEditingShift(null)
+    if (!value) return
+    const shift = shifts.find(s => s.id === shiftId)
+    if (!shift) return
+
+    const payload = {
+      employee_id: shift.employee_id,
+      date: shift.date,
+      start_time: field === 'start' ? value : shift.start_time.slice(0, 5),
+      end_time: field === 'end' ? value : shift.end_time.slice(0, 5),
+      break_minutes: shift.break_minutes,
+    }
+
+    await fetch(`/api/shifts/${shiftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    await fetchWeekShifts()
+  }
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownDay(null)
+      }
+    }
+    if (dropdownDay) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [dropdownDay])
+
+  /* ── available employees for a given day (not already assigned) ── */
+  function availableForDay(date: string): Employee[] {
+    const assigned = new Set((shiftsByDate[date] || []).map(s => s.employee_id))
+    return employees.filter(e => !assigned.has(e.id))
+  }
+
+  /* ── render ── */
 
   if (status === 'loading') {
     return (
@@ -295,24 +221,25 @@ export default function HoursPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">
-          יש להתחבר דרך <Link href="/admin" className="text-cayo-burgundy underline">עמוד הניהול</Link>
+          {"יש להתחבר דרך "}
+          <Link href="/admin" className="text-cayo-burgundy underline">עמוד הניהול</Link>
         </p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" dir="rtl">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-[1200px] mx-auto flex items-center justify-between">
           <h1 className="text-xl font-bold text-cayo-burgundy">שעות עבודה</h1>
           <div className="flex items-center gap-3">
             <Link href="/admin/employees" className="text-sm text-cayo-burgundy hover:underline">
               ניהול עובדים
             </Link>
             <a
-              href={`/api/shifts/export?month=${tab === 'summary' ? month : selectedDate.slice(0, 7)}`}
+              href={`/api/shifts/export?month=${dates[0].slice(0, 7)}`}
               className="px-3 py-1.5 border border-cayo-burgundy text-cayo-burgundy text-sm font-bold rounded-lg hover:bg-cayo-burgundy/5 transition-colors"
             >
               ייצוא CSV
@@ -321,254 +248,175 @@ export default function HoursPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        {/* Tabs */}
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6">
+        {/* Week navigation */}
         <div className="flex items-center gap-3 mb-5">
-          <div className="flex bg-white border border-gray-200 rounded-lg">
+          <div className="flex items-center bg-white border border-gray-200 rounded-lg">
             <button
-              onClick={() => setTab('daily')}
-              className={`px-5 py-2 text-sm font-medium rounded-r-lg transition-colors ${tab === 'daily' ? 'bg-cayo-burgundy text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setAnchor(shiftWeek(anchor, 1))}
+              className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600"
             >
-              תצוגת יום
+              &rarr;
             </button>
+            <span className="px-5 py-2 text-sm font-medium text-gray-700 min-w-[200px] text-center">
+              {weekLabel(dates)}
+            </span>
             <button
-              onClick={() => setTab('summary')}
-              className={`px-5 py-2 text-sm font-medium rounded-l-lg transition-colors ${tab === 'summary' ? 'bg-cayo-burgundy text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setAnchor(shiftWeek(anchor, -1))}
+              className="px-3 py-2 hover:bg-gray-50 rounded-l-lg text-gray-600"
             >
-              סיכום חודשי
+              &larr;
             </button>
           </div>
+          <button
+            onClick={() => setAnchor(todayStr())}
+            className="px-3 py-2 text-sm text-cayo-burgundy hover:underline"
+          >
+            השבוע
+          </button>
         </div>
 
-        {tab === 'daily' ? (
-          <>
-            {/* Date navigation */}
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg">
-                <button onClick={() => setSelectedDate(shiftDateStr(selectedDate, 1))} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600 text-lg">&rarr;</button>
-                <span className="px-4 py-2 text-sm font-medium text-gray-700 min-w-[180px] text-center">
-                  {formatHebDate(selectedDate)}
-                </span>
-                <button onClick={() => setSelectedDate(shiftDateStr(selectedDate, -1))} className="px-3 py-2 hover:bg-gray-50 rounded-l-lg text-gray-600 text-lg">&larr;</button>
-              </div>
-              <button
-                onClick={() => setSelectedDate(todayStr())}
-                className="px-3 py-2 text-sm text-cayo-burgundy hover:underline"
-              >
-                היום
-              </button>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
-              />
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-4 border-cayo-burgundy border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          /* Weekly table */
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="grid grid-cols-7 min-h-[400px]">
+              {dates.map((date, i) => {
+                const [, mo, da] = date.split('-').map(Number)
+                const isToday = date === today
+                const dayShifts = shiftsByDate[date] || []
+                const available = availableForDay(date)
 
-            {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="w-8 h-8 border-4 border-cayo-burgundy border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {Array.from(grouped.entries()).map(([role, emps]) => (
-                  <div key={role} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    {/* Role header */}
-                    <div className="bg-cayo-burgundy/5 border-b border-gray-200 px-4 py-2.5">
-                      <h3 className="text-sm font-bold text-cayo-burgundy">{ROLE_LABEL[role]}</h3>
+                return (
+                  <div
+                    key={date}
+                    className={`flex flex-col border-l border-gray-200 first:border-l-0 ${isToday ? 'bg-cayo-burgundy/[0.03]' : ''}`}
+                  >
+                    {/* Day header */}
+                    <div className={`px-2 py-2.5 border-b border-gray-200 text-center ${isToday ? 'bg-cayo-burgundy text-white' : 'bg-gray-50'}`}>
+                      <div className={`text-xs font-bold ${isToday ? 'text-white/70' : 'text-gray-500'}`}>
+                        {HEBREW_DAYS[i]}
+                      </div>
+                      <div className={`text-lg font-bold ${isToday ? 'text-white' : 'text-gray-800'}`}>
+                        {da}
+                      </div>
+                      <div className={`text-[10px] ${isToday ? 'text-white/50' : 'text-gray-400'}`}>
+                        {HEBREW_MONTHS[mo - 1]}
+                      </div>
                     </div>
 
-                    <div className="divide-y divide-gray-100">
-                      {emps.map(emp => {
-                        const row = rows[emp.id]
-                        if (!row) return null
-                        const hours = row.worked ? calcHours(row.start_time, row.end_time, row.break_minutes) : 0
-                        const pay = hours * emp.hourly_rate
+                    {/* Shifts */}
+                    <div className="flex-1 p-1.5 space-y-1.5">
+                      {dayShifts.map(shift => {
+                        const emp = employees.find(e => e.id === shift.employee_id)
+                        const empName = shift.employees?.full_name || emp?.full_name || '?'
+                        const empRole = shift.employees?.role || emp?.role
+                        const startTime = shift.start_time.slice(0, 5)
+                        const endTime = shift.end_time.slice(0, 5)
 
                         return (
-                          <div key={emp.id} className={`px-4 py-3 transition-colors ${row.worked ? 'bg-white' : 'bg-gray-50/50'}`}>
-                            <div className="flex items-center gap-4">
-                              {/* Checkbox + name */}
-                              <label className="flex items-center gap-3 min-w-[160px] cursor-pointer">
+                          <div
+                            key={shift.id}
+                            className="group bg-cayo-burgundy/5 rounded-lg p-2 relative"
+                          >
+                            {/* Remove button */}
+                            <button
+                              onClick={() => removeShift(shift.id)}
+                              className="absolute top-1 left-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="הסר"
+                            >
+                              x
+                            </button>
+
+                            {/* Name + role */}
+                            <div className="text-xs font-bold text-cayo-burgundy truncate" title={empName}>
+                              {empName}
+                            </div>
+                            {empRole && (
+                              <div className="text-[10px] text-gray-400">
+                                {ROLE_LABEL[empRole]}
+                              </div>
+                            )}
+
+                            {/* Times - clickable to edit */}
+                            <div className="mt-1 flex items-center justify-center gap-0.5 text-[11px] text-gray-600">
+                              {editingShift?.id === shift.id && editingShift.field === 'start' ? (
                                 <input
-                                  type="checkbox"
-                                  checked={row.worked}
-                                  onChange={e => {
-                                    updateRow(emp.id, { worked: e.target.checked })
-                                    // Auto-save on uncheck (delete shift)
-                                    if (!e.target.checked && row.shiftId) {
-                                      setTimeout(() => saveRow(emp.id), 100)
-                                    }
-                                  }}
-                                  className="w-5 h-5 rounded border-gray-300 text-cayo-burgundy focus:ring-cayo-burgundy/30"
+                                  type="time"
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  onBlur={() => saveTime(shift.id, 'start', editValue)}
+                                  onKeyDown={e => { if (e.key === 'Enter') saveTime(shift.id, 'start', editValue) }}
+                                  className="w-[70px] text-[11px] px-1 py-0.5 border border-cayo-burgundy rounded text-center"
                                 />
-                                <span className={`text-sm font-medium ${row.worked ? 'text-gray-900' : 'text-gray-400'}`}>
-                                  {emp.full_name}
-                                </span>
-                              </label>
-
-                              {row.worked && (
-                                <>
-                                  {/* Start time */}
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-400">מ-</span>
-                                    <input
-                                      type="time"
-                                      value={row.start_time}
-                                      onChange={e => updateRow(emp.id, { start_time: e.target.value })}
-                                      className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm w-[100px] focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                                    />
-                                  </div>
-
-                                  {/* End time */}
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-400">עד</span>
-                                    <input
-                                      type="time"
-                                      value={row.end_time}
-                                      onChange={e => updateRow(emp.id, { end_time: e.target.value })}
-                                      className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm w-[100px] focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                                    />
-                                  </div>
-
-                                  {/* Break */}
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-400">הפסקה</span>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={row.break_minutes}
-                                      onChange={e => updateRow(emp.id, { break_minutes: parseInt(e.target.value) || 0 })}
-                                      className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm w-[60px] focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                                    />
-                                    <span className="text-xs text-gray-400">ד׳</span>
-                                  </div>
-
-                                  {/* Hours display */}
-                                  <div className="text-sm font-medium text-gray-700 min-w-[60px] text-center">
-                                    {hours.toFixed(1)} ש׳
-                                  </div>
-
-                                  {/* Pay display */}
-                                  {emp.hourly_rate > 0 && (
-                                    <div className="text-sm font-medium text-cayo-burgundy min-w-[60px] text-center">
-                                      ₪{pay.toFixed(0)}
-                                    </div>
-                                  )}
-
-                                  {/* Save button */}
-                                  <button
-                                    onClick={() => saveRow(emp.id)}
-                                    disabled={row.saving || !row.dirty}
-                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                                      row.dirty
-                                        ? 'bg-cayo-burgundy text-white hover:bg-cayo-burgundy/90'
-                                        : 'bg-gray-100 text-gray-400'
-                                    } disabled:opacity-50`}
-                                  >
-                                    {row.saving ? '...' : row.dirty ? 'שמור' : 'נשמר'}
-                                  </button>
-                                </>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingShift({ id: shift.id, field: 'start' }); setEditValue(startTime) }}
+                                  className="hover:bg-cayo-burgundy/10 px-1 py-0.5 rounded transition-colors font-medium"
+                                >
+                                  {startTime}
+                                </button>
+                              )}
+                              <span className="text-gray-300">-</span>
+                              {editingShift?.id === shift.id && editingShift.field === 'end' ? (
+                                <input
+                                  type="time"
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  onBlur={() => saveTime(shift.id, 'end', editValue)}
+                                  onKeyDown={e => { if (e.key === 'Enter') saveTime(shift.id, 'end', editValue) }}
+                                  className="w-[70px] text-[11px] px-1 py-0.5 border border-cayo-burgundy rounded text-center"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingShift({ id: shift.id, field: 'end' }); setEditValue(endTime) }}
+                                  className="hover:bg-cayo-burgundy/10 px-1 py-0.5 rounded transition-colors font-medium"
+                                >
+                                  {endTime}
+                                </button>
                               )}
                             </div>
                           </div>
                         )
                       })}
+
+                      {/* Add employee button */}
+                      {available.length > 0 && (
+                        <div className="relative" ref={dropdownDay === date ? dropdownRef : undefined}>
+                          <button
+                            onClick={() => setDropdownDay(dropdownDay === date ? null : date)}
+                            className="w-full py-1.5 border border-dashed border-gray-300 rounded-lg text-gray-400 hover:border-cayo-burgundy hover:text-cayo-burgundy transition-colors text-sm flex items-center justify-center gap-1"
+                          >
+                            <span className="text-lg leading-none">+</span>
+                          </button>
+
+                          {dropdownDay === date && (
+                            <div className="absolute top-full mt-1 right-0 left-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg max-h-[200px] overflow-y-auto">
+                              {available.map(emp => (
+                                <button
+                                  key={emp.id}
+                                  onClick={() => addShift(date, emp.id)}
+                                  className="w-full text-right px-3 py-2 text-xs hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0"
+                                >
+                                  <span className="font-medium text-gray-900">{emp.full_name}</span>
+                                  <span className="text-gray-400 mr-1">({ROLE_LABEL[emp.role]})</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
-
-                {employees.length === 0 && (
-                  <div className="text-center py-12 text-gray-400">
-                    אין עובדים פעילים. <Link href="/admin/employees" className="text-cayo-burgundy underline">הוסף עובדים</Link>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          /* Monthly summary */
-          <>
-            {/* Month navigation */}
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg">
-                <button onClick={() => shiftMonth(-1)} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600">&rarr;</button>
-                <span className="px-4 py-2 text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel(month)}</span>
-                <button onClick={() => shiftMonth(1)} className="px-3 py-2 hover:bg-gray-50 rounded-l-lg text-gray-600">&larr;</button>
-              </div>
+                )
+              })}
             </div>
-
-            {monthLoading ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="w-8 h-8 border-4 border-cayo-burgundy border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Stats cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs text-gray-500 mb-1">סה&quot;כ משמרות</p>
-                    <p className="text-2xl font-bold text-cayo-burgundy">{monthShifts.length}</p>
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs text-gray-500 mb-1">סה&quot;כ שעות</p>
-                    <p className="text-2xl font-bold text-cayo-burgundy">{grandTotalHours.toFixed(1)}</p>
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs text-gray-500 mb-1">סה&quot;כ שכר</p>
-                    <p className="text-2xl font-bold text-cayo-burgundy">₪{grandTotalPay.toFixed(0)}</p>
-                  </div>
-                </div>
-
-                {/* Per-employee table */}
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">עובד</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">תפקיד</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">משמרות</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">שעות</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">שכר שעתי</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700">סה&quot;כ שכר</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {summary.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="text-center py-12 text-gray-400">{"אין נתונים לחודש זה"}</td>
-                          </tr>
-                        )}
-                        {summary.map((e, i) => (
-                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-gray-900">{e.name}</td>
-                            <td className="px-4 py-3">
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-cayo-burgundy/10 text-cayo-burgundy">
-                                {ROLE_LABEL[e.role]}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-gray-600">{e.shiftCount}</td>
-                            <td className="px-4 py-3 font-medium text-gray-900">{e.totalHours.toFixed(1)}</td>
-                            <td className="px-4 py-3 text-gray-600">{"₪"}{e.rate}</td>
-                            <td className="px-4 py-3 font-bold text-cayo-burgundy">{"₪"}{e.totalPay.toFixed(0)}</td>
-                          </tr>
-                        ))}
-                        {summary.length > 0 && (
-                          <tr className="bg-gray-50 font-bold">
-                            <td className="px-4 py-3 text-gray-900" colSpan={3}>{"סה\"\u05DB סה\"\u05DB"}</td>
-                            <td className="px-4 py-3 text-gray-900">{grandTotalHours.toFixed(1)}</td>
-                            <td className="px-4 py-3"></td>
-                            <td className="px-4 py-3 text-cayo-burgundy">{"₪"}{grandTotalPay.toFixed(0)}</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         )}
       </div>
     </div>
