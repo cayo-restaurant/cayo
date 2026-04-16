@@ -11,10 +11,10 @@ const heebo = Heebo({
 })
 
 export const metadata: Metadata = {
-  title: 'CAYO | מסעדה ובר',
-  description: 'CAYO - מסעדה ובר טרופי בתל אביב. חוויה קולינרית ייחודית בהשראה קובנית.',
+  title: 'CAYO | בר קוקטיילים',
+  description: 'CAYO - בר קוקטיילים טרופי בתל אביב. חוויה ייחודית בהשראה קובנית.',
   openGraph: {
-    title: 'CAYO | מסעדה ובר',
+    title: 'CAYO | בר קוקטיילים',
     description: 'חוויה קולינרית ייחודית בהשראה קובנית',
     type: 'website',
   },

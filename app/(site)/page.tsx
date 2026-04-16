@@ -3,7 +3,7 @@ import Image from 'next/image'
 import cayoLogo from '../../cayo_brand_page_005.png'
 
 export const metadata = {
-  title: 'CAYO | בר ומסעדה',
+  title: 'CAYO | בר קוקטיילים',
   description: 'CAYO - קוקטיילים צבעוניים ואווירה אקזוטית שמרגישה כמו חופשה',
 }
 
