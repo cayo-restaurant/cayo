@@ -226,26 +226,14 @@ export default function HoursPage() {
     await fetchWeekShifts()
   }
 
-  function addEmptySlot(role: Role) {
-    setExtraSlots(prev => {
-      const next = { ...prev }
-      for (const date of dates) {
-        const key = `${date}_${role}`
-        next[key] = (next[key] || 0) + 1
-      }
-      return next
-    })
+  function addSlotForDay(date: string, role: Role) {
+    const key = `${date}_${role}`
+    setExtraSlots(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }))
   }
 
-  function removeEmptySlot(role: Role) {
-    setExtraSlots(prev => {
-      const next = { ...prev }
-      for (const date of dates) {
-        const key = `${date}_${role}`
-        if ((next[key] || 0) > 0) next[key] = (next[key] || 0) - 1
-      }
-      return next
-    })
+  function removeSlotForDay(date: string, role: Role) {
+    const key = `${date}_${role}`
+    setExtraSlots(prev => ({ ...prev, [key]: Math.max((prev[key] || 0) - 1, 0) }))
   }
 
   function availableForSlot(date: string, role: Role): Employee[] {
@@ -275,7 +263,6 @@ export default function HoursPage() {
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <h1 className="text-xl font-bold text-cayo-burgundy">{"\u05e9\u05e2\u05d5\u05ea \u05e2\u05d1\u05d5\u05d3\u05d4"}</h1>
@@ -287,7 +274,6 @@ export default function HoursPage() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
-        {/* Week nav */}
         <div className="flex items-center gap-3 mb-5">
           <div className="flex items-center bg-white border border-gray-200 rounded-lg">
             <button onClick={() => setAnchor(shiftWeek(anchor, 1))} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600">&rarr;</button>
@@ -303,7 +289,7 @@ export default function HoursPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            {/* Sticky day headers */}
+            {/* Day headers */}
             <div className="grid grid-cols-7 sticky top-0 z-10 bg-white border-b-2 border-gray-200">
               {dates.map((date, i) => {
                 const [, mo, da] = date.split('-').map(Number)
@@ -331,27 +317,12 @@ export default function HoursPage() {
 
               return (
                 <div key={role}>
-                  {/* Full-width role header bar */}
-                  <div className={`flex items-center justify-between px-4 py-2 border-b border-t ${ROLE_HEADER_COLOR[role]}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold">{ROLE_LABEL[role]}</span>
-                      <span className="text-xs opacity-60">({maxSlots} {"\u05de\u05e9\u05d1\u05e6\u05d5\u05ea"})</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => removeEmptySlot(role)}
-                        className="w-7 h-7 rounded-lg bg-white/80 hover:bg-red-100 border border-current/20 text-current font-bold text-base flex items-center justify-center transition-colors"
-                        title={"\u05d4\u05e1\u05e8 \u05de\u05e9\u05d1\u05e6\u05ea"}
-                      >-</button>
-                      <button
-                        onClick={() => addEmptySlot(role)}
-                        className="w-7 h-7 rounded-lg bg-white/80 hover:bg-green-100 border border-current/20 text-current font-bold text-base flex items-center justify-center transition-colors"
-                        title={"\u05d4\u05d5\u05e1\u05e3 \u05de\u05e9\u05d1\u05e6\u05ea"}
-                      >+</button>
-                    </div>
+                  {/* Role header */}
+                  <div className={`px-4 py-1.5 border-b border-t text-sm font-bold ${ROLE_HEADER_COLOR[role]}`}>
+                    {ROLE_LABEL[role]}
                   </div>
 
-                  {/* Slot rows - no label column needed */}
+                  {/* Slot rows */}
                   {Array.from({ length: maxSlots }, (_, slotIdx) => (
                     <div key={slotIdx} className="grid grid-cols-7 border-b border-gray-100 last:border-b-0">
                       {dates.map((date, colIdx) => {
@@ -404,6 +375,29 @@ export default function HoursPage() {
                       })}
                     </div>
                   ))}
+
+                  {/* Per-day +/- footer row */}
+                  <div className="grid grid-cols-7 border-b border-gray-200">
+                    {dates.map((date, colIdx) => {
+                      const key = `${date}_${role}`
+                      const filled = (shiftsByDateRole[key] || []).length
+                      const extra = extraSlots[key] || 0
+                      const total = filled + extra
+                      return (
+                        <div key={date} className={`${colIdx > 0 ? 'border-r border-gray-200' : ''} flex items-center justify-center gap-1.5 py-1 bg-gray-50/50`}>
+                          <button
+                            onClick={() => removeSlotForDay(date, role)}
+                            className="w-6 h-6 rounded bg-gray-200 hover:bg-red-100 text-gray-500 hover:text-red-600 text-sm font-bold flex items-center justify-center transition-colors"
+                          >-</button>
+                          <span className="text-[11px] text-gray-400 font-medium min-w-[16px] text-center">{total}</span>
+                          <button
+                            onClick={() => addSlotForDay(date, role)}
+                            className="w-6 h-6 rounded bg-gray-200 hover:bg-green-100 text-gray-500 hover:text-green-600 text-sm font-bold flex items-center justify-center transition-colors"
+                          >+</button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )
             })}
