@@ -26,6 +26,17 @@ interface Shift {
   employees: { full_name: string; role: Role; hourly_rate: number } | null
 }
 
+interface TipRow {
+  name: string
+  role: string
+  start: string
+  end: string
+  hours: number
+  cashTip: number
+  creditTip: number
+  supplement: number
+}
+
 const ROLE_LABEL: Record<Role, string> = {
   manager: '\u05d0\u05d7\u05de"\u05e9',
   bartender: '\u05d1\u05e8',
@@ -57,6 +68,8 @@ const ROLE_ORDER: Role[] = ['manager', 'bartender', 'waiter', 'host', 'kitchen',
 const DEFAULT_SLOTS: Record<Role, number> = {
   manager: 1, bartender: 4, waiter: 4, host: 2, kitchen: 4, dishwasher: 2,
 }
+const TIP_ROLES: Role[] = ['waiter', 'bartender']
+const MIN_HOURLY = 45
 
 const HEBREW_DAYS = ['\u05e8\u05d0\u05e9\u05d5\u05df', '\u05e9\u05e0\u05d9', '\u05e9\u05dc\u05d9\u05e9\u05d9', '\u05e8\u05d1\u05d9\u05e2\u05d9', '\u05d7\u05de\u05d9\u05e9\u05d9', '\u05e9\u05d9\u05e9\u05d9', '\u05e9\u05d1\u05ea']
 const HEBREW_MONTHS = ['\u05d9\u05e0\u05d5\u05d0\u05e8', '\u05e4\u05d1\u05e8\u05d5\u05d0\u05e8', '\u05de\u05e8\u05e5', '\u05d0\u05e4\u05e8\u05d9\u05dc', '\u05de\u05d0\u05d9', '\u05d9\u05d5\u05e0\u05d9', '\u05d9\u05d5\u05dc\u05d9', '\u05d0\u05d5\u05d2\u05d5\u05e1\u05d8', '\u05e1\u05e4\u05d8\u05de\u05d1\u05e8', '\u05d0\u05d5\u05e7\u05d8\u05d5\u05d1\u05e8', '\u05e0\u05d5\u05d1\u05de\u05d1\u05e8', '\u05d3\u05e6\u05de\u05d1\u05e8']
@@ -95,6 +108,16 @@ function shiftWeek(anchor: string, delta: number): string {
   return toStr(date)
 }
 
+function calcShiftHours(start: string, end: string, breakMin: number): number {
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let startMins = sh * 60 + sm
+  let endMins = eh * 60 + em
+  // Handle overnight shifts (e.g. 18:00 - 02:00)
+  if (endMins <= startMins) endMins += 24 * 60
+  return Math.max((endMins - startMins - breakMin) / 60, 0)
+}
+
 export default function HoursPage() {
   const { status } = useSession()
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -113,6 +136,13 @@ export default function HoursPage() {
     breakMin: number
   } | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // Tip calculator state
+  const [tipOpen, setTipOpen] = useState(false)
+  const [tipDate, setTipDate] = useState(todayStr())
+  const [tipCash, setTipCash] = useState('')
+  const [tipCredit, setTipCredit] = useState('')
+  const [tipResults, setTipResults] = useState<TipRow[] | null>(null)
 
   const dates = useMemo(() => weekDates(anchor), [anchor])
   const today = todayStr()
@@ -242,6 +272,55 @@ export default function HoursPage() {
     return employees.filter(e => e.role === role && !assignedIds.has(e.id))
   }
 
+  // Tip calculation
+  function calculateTips() {
+    const cashTotal = parseFloat(tipCash) || 0
+    const creditTotal = parseFloat(tipCredit) || 0
+
+    // Get all waiter+bartender shifts for the selected day
+    const dayTipShifts = shifts.filter(
+      s => s.date === tipDate && s.employees && TIP_ROLES.includes(s.employees.role as Role)
+    )
+
+    if (dayTipShifts.length === 0) {
+      setTipResults([])
+      return
+    }
+
+    const numWorkers = dayTipShifts.length
+    const cashPerPerson = cashTotal / numWorkers
+    const creditPerPerson = creditTotal / numWorkers
+    const totalPerPerson = cashPerPerson + creditPerPerson
+
+    const rows: TipRow[] = dayTipShifts.map(s => {
+      const hours = calcShiftHours(s.start_time, s.end_time, s.break_minutes)
+      const hourlyRate = hours > 0 ? totalPerPerson / hours : 0
+      const supplement = hourlyRate < MIN_HOURLY && hours > 0
+        ? (MIN_HOURLY * hours) - totalPerPerson
+        : 0
+
+      return {
+        name: s.employees?.full_name || '',
+        role: ROLE_LABEL[(s.employees?.role as Role) || 'waiter'],
+        start: s.start_time.slice(0, 5),
+        end: s.end_time.slice(0, 5),
+        hours: Math.round(hours * 100) / 100,
+        cashTip: Math.round(cashPerPerson),
+        creditTip: Math.round(creditPerPerson),
+        supplement: Math.round(supplement),
+      }
+    })
+
+    setTipResults(rows)
+  }
+
+  // Format date for tip day selector
+  function tipDateLabel(date: string): string {
+    const [, mo, da] = date.split('-').map(Number)
+    const dow = new Date(parseInt(date.slice(0, 4)), mo - 1, da).getDay()
+    return `${HEBREW_DAYS[dow]} ${da}/${mo}`
+  }
+
   if (status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -261,8 +340,11 @@ export default function HoursPage() {
     )
   }
 
+  const totalSupplement = tipResults ? tipResults.reduce((sum, r) => sum + r.supplement, 0) : 0
+
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
+      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <h1 className="text-xl font-bold text-cayo-burgundy">{"\u05e9\u05e2\u05d5\u05ea \u05e2\u05d1\u05d5\u05d3\u05d4"}</h1>
@@ -274,6 +356,7 @@ export default function HoursPage() {
       </div>
 
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
+        {/* Week nav */}
         <div className="flex items-center gap-3 mb-5">
           <div className="flex items-center bg-white border border-gray-200 rounded-lg">
             <button onClick={() => setAnchor(shiftWeek(anchor, 1))} className="px-3 py-2 hover:bg-gray-50 rounded-r-lg text-gray-600">&rarr;</button>
@@ -283,6 +366,150 @@ export default function HoursPage() {
           <button onClick={() => setAnchor(todayStr())} className="px-3 py-2 text-sm text-cayo-burgundy hover:underline">{"\u05d4\u05e9\u05d1\u05d5\u05e2"}</button>
         </div>
 
+        {/* ===== TIP CALCULATOR ===== */}
+        <div className="bg-white rounded-xl border border-gray-200 mb-5 overflow-hidden">
+          <button
+            onClick={() => { setTipOpen(!tipOpen); setTipResults(null) }}
+            className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base font-bold text-cayo-burgundy">{"\u05d7\u05d9\u05e9\u05d5\u05d1 \u05d8\u05d9\u05e4\u05d9\u05dd"}</span>
+              <span className="text-xs text-gray-400">{"\u05de\u05dc\u05e6\u05e8\u05d9\u05dd + \u05d1\u05e8"}</span>
+            </div>
+            <span className={`text-gray-400 transition-transform ${tipOpen ? 'rotate-180' : ''}`}>&#9660;</span>
+          </button>
+
+          {tipOpen && (
+            <div className="px-5 pb-5 border-t border-gray-100">
+              {/* Day selector + inputs */}
+              <div className="flex flex-wrap items-end gap-4 mt-4">
+                {/* Day picker */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{"\u05d9\u05d5\u05dd"}</label>
+                  <div className="flex gap-1">
+                    {dates.map(date => {
+                      const [, , da] = date.split('-').map(Number)
+                      const dow = new Date(parseInt(date.slice(0, 4)), parseInt(date.slice(5, 7)) - 1, da).getDay()
+                      const isSelected = date === tipDate
+                      return (
+                        <button
+                          key={date}
+                          onClick={() => { setTipDate(date); setTipResults(null) }}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            isSelected
+                              ? 'bg-cayo-burgundy text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          <div>{HEBREW_DAYS[dow]}</div>
+                          <div className="font-bold">{da}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Cash input */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{"\u05e1\u05d4\"\u05db \u05d8\u05d9\u05e4 \u05de\u05d6\u05d5\u05de\u05df"}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={tipCash}
+                    onChange={e => { setTipCash(e.target.value); setTipResults(null) }}
+                    placeholder="0"
+                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy"
+                  />
+                </div>
+
+                {/* Credit input */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{"\u05e1\u05d4\"\u05db \u05d8\u05d9\u05e4 \u05d0\u05e9\u05e8\u05d0\u05d9"}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={tipCredit}
+                    onChange={e => { setTipCredit(e.target.value); setTipResults(null) }}
+                    placeholder="0"
+                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy"
+                  />
+                </div>
+
+                {/* Calculate button */}
+                <button
+                  onClick={calculateTips}
+                  className="px-5 py-2 bg-cayo-burgundy text-white text-sm font-bold rounded-lg hover:bg-cayo-burgundy/90 transition-colors"
+                >{"\u05d7\u05e9\u05d1"}</button>
+              </div>
+
+              {/* Results table */}
+              {tipResults !== null && (
+                <div className="mt-5">
+                  {tipResults.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-4 text-center">{"\u05d0\u05d9\u05df \u05de\u05e9\u05de\u05e8\u05d5\u05ea \u05de\u05dc\u05e6\u05e8\u05d9\u05dd/\u05d1\u05e8 \u05d1\u05d9\u05d5\u05dd \u05d4\u05d6\u05d4"}</p>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto rounded-lg border border-gray-200">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 text-gray-600">
+                              <th className="px-3 py-2 text-right font-bold">{"\u05e9\u05dd \u05e2\u05d5\u05d1\u05d3"}</th>
+                              <th className="px-3 py-2 text-right font-bold">{"\u05ea\u05e4\u05e7\u05d9\u05d3"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05db\u05e0\u05d9\u05e1\u05d4"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05d9\u05e6\u05d9\u05d0\u05d4"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05e9\u05e2\u05d5\u05ea"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05d8\u05d9\u05e4 \u05de\u05d6\u05d5\u05de\u05df"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05d8\u05d9\u05e4 \u05d0\u05e9\u05e8\u05d0\u05d9"}</th>
+                              <th className="px-3 py-2 text-center font-bold">{"\u05d4\u05e9\u05dc\u05de\u05d4"}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tipResults.map((row, i) => (
+                              <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-medium">{row.name}</td>
+                                <td className="px-3 py-2.5 text-gray-500">{row.role}</td>
+                                <td className="px-3 py-2.5 text-center">{row.start}</td>
+                                <td className="px-3 py-2.5 text-center">{row.end}</td>
+                                <td className="px-3 py-2.5 text-center">{row.hours}</td>
+                                <td className="px-3 py-2.5 text-center font-medium text-green-700">{row.cashTip} \u20aa</td>
+                                <td className="px-3 py-2.5 text-center font-medium text-blue-700">{row.creditTip} \u20aa</td>
+                                <td className="px-3 py-2.5 text-center font-medium">
+                                  {row.supplement > 0 ? (
+                                    <span className="text-red-600">{row.supplement} \u20aa</span>
+                                  ) : (
+                                    <span className="text-gray-300">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Summary row */}
+                      <div className="flex items-center gap-6 mt-3 px-1 text-sm">
+                        <span className="text-gray-500">
+                          {"\u05e1\u05d4\"\u05db \u05d8\u05d9\u05e4\u05d9\u05dd: "}
+                          <span className="font-bold text-gray-800">{(parseFloat(tipCash) || 0) + (parseFloat(tipCredit) || 0)} \u20aa</span>
+                        </span>
+                        <span className="text-gray-500">
+                          {"\u05dc\u05e2\u05d5\u05d1\u05d3: "}
+                          <span className="font-bold text-gray-800">{tipResults.length}</span>
+                        </span>
+                        {totalSupplement > 0 && (
+                          <span className="text-red-600 font-bold">
+                            {"\u05e1\u05d4\"\u05db \u05d4\u05e9\u05dc\u05de\u05d5\u05ea: "}{totalSupplement} \u20aa
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ===== WEEK GRID ===== */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-4 border-cayo-burgundy border-t-transparent rounded-full animate-spin" />
@@ -317,12 +544,10 @@ export default function HoursPage() {
 
               return (
                 <div key={role}>
-                  {/* Role header */}
                   <div className={`px-4 py-1.5 border-b border-t text-sm font-bold ${ROLE_HEADER_COLOR[role]}`}>
                     {ROLE_LABEL[role]}
                   </div>
 
-                  {/* Slot rows */}
                   {Array.from({ length: maxSlots }, (_, slotIdx) => (
                     <div key={slotIdx} className="grid grid-cols-7 border-b border-gray-100 last:border-b-0">
                       {dates.map((date, colIdx) => {
@@ -376,7 +601,6 @@ export default function HoursPage() {
                     </div>
                   ))}
 
-                  {/* Per-day +/- footer row */}
                   <div className="grid grid-cols-7 border-b border-gray-200">
                     {dates.map((date, colIdx) => {
                       const key = `${date}_${role}`
