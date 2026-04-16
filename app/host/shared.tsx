@@ -268,8 +268,12 @@ export function ReservationRow({
     onUndo()
   }
 
-  const rowCls = isLate
+  const isVeryLate = isLate && r.lateMinutes >= 30
+
+  const rowCls = isVeryLate
     ? 'border-cayo-red bg-cayo-red/5'
+    : isLate
+    ? 'border-cayo-orange bg-cayo-orange/5'
     : isArrived
     ? 'border-cayo-teal/40 bg-cayo-teal/5'
     : isNoShow
@@ -278,8 +282,10 @@ export function ReservationRow({
     ? 'border-cayo-orange/50 bg-cayo-orange/5'
     : 'border-cayo-burgundy/15 bg-white'
 
-  const timeBadgeCls = isLate
+  const timeBadgeCls = isVeryLate
     ? 'bg-cayo-red text-white'
+    : isLate
+    ? 'bg-cayo-orange text-white'
     : isArrived
     ? 'bg-cayo-teal/20 text-cayo-teal'
     : isNoShow
@@ -355,7 +361,7 @@ export function ReservationRow({
               {isLate && (
                 <>
                   <span className="opacity-40">·</span>
-                  <span className="text-cayo-red font-black">
+                  <span className={`${isVeryLate ? 'text-cayo-red' : 'text-cayo-orange'} font-black`}>
                     איחור {r.lateMinutes} דק׳
                   </span>
                 </>
@@ -401,8 +407,10 @@ export function ReservationRow({
                     onClick={e => e.stopPropagation()}
                     dir="ltr"
                     className={`w-full h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform ${
-                      isLate
+                      isVeryLate
                         ? 'bg-cayo-red text-white'
+                        : isLate
+                        ? 'bg-cayo-orange text-white'
                         : 'bg-cayo-burgundy text-white'
                     }`}
                   >
