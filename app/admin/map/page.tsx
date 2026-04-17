@@ -37,6 +37,37 @@ type EditableTable = RestaurantTable & { _draft?: boolean; _dirty?: boolean }
 const CANVAS_WIDTH = 1200
 const CANVAS_HEIGHT = 800
 const GRID_SNAP = 10
+const AUTOSAVE_DEBOUNCE_MS = 250
+
+// Fixed architectural features --------------------------------------------
+//
+// These are *built-in* parts of the restaurant layout (bar counter, host
+// stand, waiter station, column). They don't move and aren't stored in the
+// DB — they're purely visual context so the hostess and the owner can tell
+// which table is next to what. To move or resize one, edit the numbers
+// below; they're in the same 1200×800 logical coordinate system the tables
+// use.
+interface FixedFeature {
+  id: string
+  kind: 'bar' | 'host' | 'waiter' | 'column'
+  label: string
+  pos_x: number
+  pos_y: number
+  width: number
+  height: number
+  shape: 'rectangle' | 'square' | 'circle'
+}
+
+const FIXED_FEATURES: FixedFeature[] = [
+  // Host stand — bottom-right corner, at the entrance.
+  { id: 'host',   kind: 'host',   label: 'מארחת', pos_x: 1000, pos_y: 680, width: 100, height: 100, shape: 'rectangle' },
+  // Column — small circle, positioned just below table 7.
+  { id: 'column', kind: 'column', label: 'עמוד',  pos_x: 425,  pos_y: 455, width: 50,  height: 50,  shape: 'circle' },
+  // Bar — long rectangle along the top, from the left corner to a bit past the middle.
+  { id: 'bar',    kind: 'bar',    label: 'בר',    pos_x: 20,   pos_y: 40,  width: 820, height: 60,  shape: 'rectangle' },
+  // Waiter station — vertical, positioned below the bar on the right side.
+  { id: 'waiter', kind: 'waiter', label: 'עמדת מלצרים', pos_x: 970, pos_y: 30,  width: 60,  height: 120, shape: 'rectangle' },
+]
 
 const PALETTE: Array<{
   shape: Shape
@@ -66,6 +97,21 @@ function nextTableNumber(tables: EditableTable[], area: Area): number {
   return n
 }
 
+function tablePayload(t: EditableTable) {
+  return {
+    table_number: t.table_number,
+    shape: t.shape,
+    width: t.width,
+    height: t.height,
+    pos_x: t.pos_x,
+    pos_y: t.pos_y,
+    capacity_min: t.capacity_min,
+    capacity_max: t.capacity_max,
+    area: t.area,
+    rotation: t.rotation,
+  }
+}
+
 // Page --------------------------------------------------------------------
 
 export default function AdminMapPage() {
@@ -75,8 +121,7 @@ export default function AdminMapPage() {
   const [error, setError] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [deletedIds, setDeletedIds] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
+  const [saveInFlight, setSaveInFlight] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const load = async () => {
@@ -92,7 +137,6 @@ export default function AdminMapPage() {
       }
       const data: RestaurantTable[] = await res.json()
       setTables(data)
-      setDeletedIds([])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שגיאה לא ידועה')
     } finally {
@@ -105,6 +149,72 @@ export default function AdminMapPage() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
+
+  useEffect(() => {
+    if (!editMode) return
+    if (saveInFlight) return
+    const needsSave = tables.some((t) => t._dirty || t._draft)
+    if (!needsSave) return
+
+    const timer = setTimeout(() => {
+      flushPendingSaves()
+    }, AUTOSAVE_DEBOUNCE_MS)
+
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables, editMode, saveInFlight])
+
+  const flushPendingSaves = async () => {
+    setSaveInFlight(true)
+    setSaveError(null)
+    try {
+      const snapshot = tables
+      for (const t of snapshot) {
+        if (t._draft) {
+          const res = await fetch('/api/admin/map/tables', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(tablePayload(t)),
+          })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            throw new Error(
+              'יצירת שולחן ' + t.table_number + ' נכשלה: ' +
+              (typeof body?.error === 'string'
+                ? body.error
+                : JSON.stringify(body?.error ?? res.status)),
+            )
+          }
+          const created: RestaurantTable = await res.json()
+          const draftId = t.id
+          setTables((prev) => prev.map((x) => (x.id === draftId ? { ...created } : x)))
+          setSelectedId((prev) => (prev === draftId ? created.id : prev))
+        } else if (t._dirty) {
+          const res = await fetch('/api/admin/map/tables/' + t.id, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(tablePayload(t)),
+          })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            throw new Error(
+              'עדכון שולחן ' + t.table_number + ' נכשל: ' +
+              (typeof body?.error === 'string'
+                ? body.error
+                : JSON.stringify(body?.error ?? res.status)),
+            )
+          }
+          const updated: RestaurantTable = await res.json()
+          setTables((prev) => prev.map((x) => (x.id === t.id ? { ...updated } : x)))
+        }
+      }
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'שמירה נכשלה')
+      try { await load() } catch { /* already surfaced */ }
+    } finally {
+      setSaveInFlight(false)
+    }
+  }
 
   if (status === 'loading') {
     return (
@@ -127,12 +237,7 @@ export default function AdminMapPage() {
   }
 
   const selected = tables.find((t) => t.id === selectedId) ?? null
-  const draftCount = tables.filter((t) => t._draft).length
-  const dirtyCount = tables.filter((t) => t._dirty && !t._draft).length
-  const pending = draftCount + dirtyCount + deletedIds.length
-  const hasConflict = tables.some((t, i) =>
-    tables.some((o, j) => j !== i && o.table_number === t.table_number),
-  )
+  const pendingCount = tables.filter((t) => t._dirty || t._draft).length
 
   const handleDropNew = (shape: Shape, x: number, y: number) => {
     const proto = PALETTE.find((p) => p.shape === shape)
@@ -182,109 +287,41 @@ export default function AdminMapPage() {
     )
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const t = tables.find((x) => x.id === id)
     if (!t) return
-    if (!t._draft) {
-      setDeletedIds((prev) => [...prev, id])
-    }
-    setTables((prev) => prev.filter((x) => x.id !== id))
-    setSelectedId(null)
-  }
-
-  const handleDiscard = () => {
-    if (pending > 0 && !confirm('לבטל את כל השינויים שלא נשמרו?')) return
-    load()
-    setSelectedId(null)
-  }
-
-  const handleSave = async () => {
-    if (hasConflict) {
-      setSaveError('יש שני שולחנות עם אותו מספר — תקן לפני שמירה')
+    if (t._draft) {
+      setTables((prev) => prev.filter((x) => x.id !== id))
+      setSelectedId(null)
       return
     }
-    setSaving(true)
-    setSaveError(null)
+    if (!confirm('למחוק את שולחן ' + t.table_number + '?')) return
+
+    setTables((prev) => prev.filter((x) => x.id !== id))
+    setSelectedId(null)
     try {
-      for (const id of deletedIds) {
-        const res = await fetch('/api/admin/map/tables/' + id, { method: 'DELETE' })
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(
-            'מחיקת שולחן נכשלה: ' +
-            (typeof body?.error === 'string' ? body.error : res.status),
-          )
-        }
+      const res = await fetch('/api/admin/map/tables/' + id, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(
+          typeof body?.error === 'string' ? body.error : 'שגיאה ' + res.status,
+        )
       }
-
-      for (const t of tables) {
-        if (t._draft) {
-          const res = await fetch('/api/admin/map/tables', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              table_number: t.table_number,
-              shape: t.shape,
-              width: t.width,
-              height: t.height,
-              pos_x: t.pos_x,
-              pos_y: t.pos_y,
-              capacity_min: t.capacity_min,
-              capacity_max: t.capacity_max,
-              area: t.area,
-              rotation: t.rotation,
-            }),
-          })
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}))
-            throw new Error(
-              'יצירת שולחן ' + t.table_number + ' נכשלה: ' +
-              (typeof body?.error === 'string'
-                ? body.error
-                : JSON.stringify(body?.error ?? res.status)),
-            )
-          }
-        } else if (t._dirty) {
-          const res = await fetch('/api/admin/map/tables/' + t.id, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              table_number: t.table_number,
-              shape: t.shape,
-              width: t.width,
-              height: t.height,
-              pos_x: t.pos_x,
-              pos_y: t.pos_y,
-              capacity_min: t.capacity_min,
-              capacity_max: t.capacity_max,
-              area: t.area,
-              rotation: t.rotation,
-            }),
-          })
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}))
-            throw new Error(
-              'עדכון שולחן ' + t.table_number + ' נכשל: ' +
-              (typeof body?.error === 'string'
-                ? body.error
-                : JSON.stringify(body?.error ?? res.status)),
-            )
-          }
-        }
-      }
-
-      await load()
-      setEditMode(false)
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'שמירה נכשלה')
-    } finally {
-      setSaving(false)
+      setSaveError(
+        'מחיקת שולחן נכשלה: ' + (e instanceof Error ? e.message : 'שגיאה'),
+      )
+      await load()
     }
+  }
+
+  const handleExitEdit = () => {
+    setEditMode(false)
+    setSelectedId(null)
   }
 
   return (
     <div className="min-h-screen bg-cayo-cream">
-      {/* Header */}
       <div className="bg-cayo-burgundy text-white">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -298,9 +335,7 @@ export default function AdminMapPage() {
               </span>
             )}
             {editMode && (
-              <span className="text-xs bg-cayo-orange/90 text-white px-2 py-0.5 rounded-full font-bold">
-                מצב עריכה{pending > 0 ? ' · ' + pending + ' שינויים' : ''}
-              </span>
+              <SaveIndicator saveInFlight={saveInFlight} pendingCount={pendingCount} />
             )}
           </div>
 
@@ -314,24 +349,13 @@ export default function AdminMapPage() {
               Walk-in
             </button>
             {editMode ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleDiscard}
-                  disabled={saving}
-                  className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-3 py-1.5 text-sm font-bold disabled:opacity-50"
-                >
-                  ביטול
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving || pending === 0 || hasConflict}
-                  className="bg-white text-cayo-burgundy rounded-lg px-3 py-1.5 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cayo-cream transition-colors"
-                >
-                  {saving ? 'שומר...' : 'שמירה'}
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={handleExitEdit}
+                className="bg-white text-cayo-burgundy rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-cayo-cream transition-colors"
+              >
+                סיום עריכה
+              </button>
             ) : (
               <button
                 type="button"
@@ -347,8 +371,15 @@ export default function AdminMapPage() {
 
       {saveError && (
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 pt-4">
-          <div className="bg-cayo-red/10 border-2 border-cayo-red/40 text-cayo-red rounded-lg px-4 py-3 text-sm font-bold">
-            {saveError}
+          <div className="bg-cayo-red/10 border-2 border-cayo-red/40 text-cayo-red rounded-lg px-4 py-3 text-sm font-bold flex items-center justify-between gap-3">
+            <span>{saveError}</span>
+            <button
+              type="button"
+              onClick={() => setSaveError(null)}
+              className="text-cayo-red/70 hover:text-cayo-red text-xs font-bold underline"
+            >
+              סגור
+            </button>
           </div>
         </div>
       )}
@@ -397,12 +428,38 @@ export default function AdminMapPage() {
 
         {editMode && (
           <p className="mt-4 text-center text-xs text-cayo-burgundy/50">
-            גרור צורה מהפאלטה · לחץ על שולחן לבחור · גרור שולחן להזזה · לחץ "שמירה" כדי לשמור ל-DB
+            גרור צורה מהפאלטה · לחץ על שולחן לבחור · גרור שולחן להזזה · שינויים נשמרים אוטומטית
           </p>
         )}
       </div>
     </div>
   )
+}
+
+// Save indicator ----------------------------------------------------------
+
+function SaveIndicator({
+  saveInFlight,
+  pendingCount,
+}: {
+  saveInFlight: boolean
+  pendingCount: number
+}) {
+  if (saveInFlight) {
+    return (
+      <span className="text-xs bg-cayo-orange/90 text-white px-2 py-0.5 rounded-full font-bold">
+        שומר...
+      </span>
+    )
+  }
+  if (pendingCount > 0) {
+    return (
+      <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-bold">
+        {pendingCount} שינויים בהמתנה
+      </span>
+    )
+  }
+  return null
 }
 
 // Palette -----------------------------------------------------------------
@@ -441,6 +498,36 @@ function ShapePreview({ shape }: { shape: Shape }) {
     return <div className="w-14 h-8 bg-cayo-teal/30 border-2 border-cayo-teal/60 rounded" />
   }
   return <div className="w-8 h-8 bg-cayo-teal/30 border-2 border-cayo-teal/60 rounded-full" />
+}
+
+// Fixed feature ------------------------------------------------------------
+
+function FixedFeatureShape({ feature }: { feature: FixedFeature }) {
+  const style: CSSProperties = {
+    position: 'absolute',
+    left: (feature.pos_x / CANVAS_WIDTH) * 100 + '%',
+    top: (feature.pos_y / CANVAS_HEIGHT) * 100 + '%',
+    width: (feature.width / CANVAS_WIDTH) * 100 + '%',
+    height: (feature.height / CANVAS_HEIGHT) * 100 + '%',
+    pointerEvents: 'none', // decoration only — can't be selected, dragged, etc.
+    zIndex: 0,             // always behind tables
+  }
+  const radius =
+    feature.shape === 'circle' ? 'rounded-full'
+    : feature.shape === 'square' ? 'rounded'
+    : 'rounded-md'
+  return (
+    <div
+      style={style}
+      className={
+        'bg-cayo-burgundy/10 border-2 border-cayo-burgundy/30 text-cayo-burgundy/70 ' +
+        radius +
+        ' flex items-center justify-center font-bold select-none overflow-hidden'
+      }
+    >
+      <span className="text-xs sm:text-sm px-1 text-center leading-tight break-words">{feature.label}</span>
+    </div>
+  )
 }
 
 // Canvas ------------------------------------------------------------------
@@ -550,6 +637,14 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
         aspectRatio: CANVAS_WIDTH + ' / ' + CANVAS_HEIGHT,
       }}
     >
+      {/* Fixed features — always rendered, behind tables */}
+      <div className="absolute inset-0" data-canvas="1">
+        {FIXED_FEATURES.map((f) => (
+          <FixedFeatureShape key={f.id} feature={f} />
+        ))}
+      </div>
+
+      {/* Tables */}
       <div className="absolute inset-0" data-canvas="1">
         {tables.map((t) => (
           <TableShape
@@ -686,7 +781,7 @@ function EditPanel({
   return (
     <aside className="bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4 h-fit">
       <h3 className="text-xs font-black text-cayo-burgundy/60 uppercase tracking-wider mb-3">
-        {table._draft ? 'שולחן חדש (טיוטה)' : table._dirty ? 'עריכת שולחן *' : 'עריכת שולחן'}
+        עריכת שולחן
       </h3>
 
       <label className="block mb-3">
