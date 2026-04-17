@@ -964,6 +964,12 @@ function Dashboard() {
               >
                 ניהול עובדים
               </Link>
+              <Link
+                href="/admin/map"
+                className="text-center text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy/8 text-cayo-burgundy hover:bg-cayo-burgundy/15 transition-colors"
+              >
+                מפת מסעדה
+              </Link>
               <button
                 onClick={openCreate}
                 className="text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy text-white hover:bg-cayo-burgundy/90 transition-colors"
