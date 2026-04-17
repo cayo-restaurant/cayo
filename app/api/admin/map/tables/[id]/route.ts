@@ -3,14 +3,9 @@ import { z } from 'zod'
 import { requireAdmin } from '@/lib/admin-auth'
 import { getServiceClient } from '@/lib/supabase'
 
-// Keep these in sync with /api/admin/map/tables/route.ts
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
 const AREAS = ['bar', 'table'] as const
 
-// Schema for PATCH — every field is optional. We do the cross-field capacity
-// check only when both min and max are being updated together (the DB's
-// CHECK constraint will still catch any partial update that breaks the
-// invariant when combined with existing row values).
 const updateSchema = z
   .object({
     table_number: z.number().int().min(1).optional(),
@@ -23,6 +18,11 @@ const updateSchema = z
     capacity_min: z.number().int().min(1).optional(),
     capacity_max: z.number().int().min(1).max(20).optional(),
     area: z.enum(AREAS).optional(),
+    rotation: z
+      .number()
+      .int()
+      .refine((v) => [0, 90, 180, 270].includes(v), 'rotation חייב להיות 0/90/180/270')
+      .optional(),
     active: z.boolean().optional(),
   })
   .refine(
@@ -38,11 +38,6 @@ const updateSchema = z
 
 type Params = { params: Promise<{ id: string }> }
 
-// ---------------------------------------------
-// PATCH /api/admin/map/tables/:id
-// Updates any subset of table fields. Also used to reactivate a soft-deleted
-// table by sending { active: true }.
-// ---------------------------------------------
 export async function PATCH(req: NextRequest, { params }: Params) {
   const denied = await requireAdmin()
   if (denied) return denied
@@ -64,7 +59,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     )
   }
 
-  // Empty body — nothing to update.
   if (Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: 'לא הועברו שינויים' }, { status: 400 })
   }
@@ -80,11 +74,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (error) {
     if (error.code === '23505') {
       return NextResponse.json(
-        { error: `מספר שולחן ${parsed.data.table_number} כבר קיים` },
+        { error: 'מספר שולחן ' + parsed.data.table_number + ' כבר קיים' },
         { status: 409 },
       )
     }
-    // PostgREST returns PGRST116 when .single() finds zero rows.
     if (error.code === 'PGRST116') {
       return NextResponse.json({ error: 'שולחן לא נמצא' }, { status: 404 })
     }
@@ -94,13 +87,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   return NextResponse.json(data)
 }
 
-// ---------------------------------------------
-// DELETE /api/admin/map/tables/:id
-// Soft-delete: sets active=false. Hard deletes would break historical
-// reservations that reference this table. Use ?hard=true to force a real
-// delete (reserved for cleanup / admin ops; reservations.table_id will go
-// to NULL automatically thanks to ON DELETE SET NULL).
-// ---------------------------------------------
 export async function DELETE(req: NextRequest, { params }: Params) {
   const denied = await requireAdmin()
   if (denied) return denied

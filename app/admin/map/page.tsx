@@ -22,14 +22,14 @@ interface RestaurantTable {
   capacity_min: number
   capacity_max: number
   area: Area
+  rotation: number
   active: boolean
   created_at: string
   updated_at: string
 }
 
-// Client-side representation of a table. `_draft` marks a table that was
-// created locally and hasn't been POSTed yet. `_dirty` marks an existing
-// table that has been edited and needs a PATCH on save.
+const ROTATIONS = [0, 90, 180, 270] as const
+
 type EditableTable = RestaurantTable & { _draft?: boolean; _dirty?: boolean }
 
 // Canvas constants --------------------------------------------------------
@@ -151,6 +151,7 @@ export default function AdminMapPage() {
       capacity_min: proto.capacity_min,
       capacity_max: proto.capacity_max,
       area: proto.area,
+      rotation: 0,
       active: true,
       created_at: now,
       updated_at: now,
@@ -185,7 +186,6 @@ export default function AdminMapPage() {
     const t = tables.find((x) => x.id === id)
     if (!t) return
     if (!t._draft) {
-      // Persisted tables need to tell the server to soft-delete on save.
       setDeletedIds((prev) => [...prev, id])
     }
     setTables((prev) => prev.filter((x) => x.id !== id))
@@ -206,7 +206,6 @@ export default function AdminMapPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      // 1. Delete removed persisted tables.
       for (const id of deletedIds) {
         const res = await fetch('/api/admin/map/tables/' + id, { method: 'DELETE' })
         if (!res.ok) {
@@ -218,7 +217,6 @@ export default function AdminMapPage() {
         }
       }
 
-      // 2. Create drafts, update dirty.
       for (const t of tables) {
         if (t._draft) {
           const res = await fetch('/api/admin/map/tables', {
@@ -234,6 +232,7 @@ export default function AdminMapPage() {
               capacity_min: t.capacity_min,
               capacity_max: t.capacity_max,
               area: t.area,
+              rotation: t.rotation,
             }),
           })
           if (!res.ok) {
@@ -259,6 +258,7 @@ export default function AdminMapPage() {
               capacity_min: t.capacity_min,
               capacity_max: t.capacity_max,
               area: t.area,
+              rotation: t.rotation,
             }),
           })
           if (!res.ok) {
@@ -273,7 +273,6 @@ export default function AdminMapPage() {
         }
       }
 
-      // 3. Reload fresh server state so ids line up and flags reset.
       await load()
       setEditMode(false)
     } catch (e) {
@@ -287,7 +286,7 @@ export default function AdminMapPage() {
     <div className="min-h-screen bg-cayo-cream">
       {/* Header */}
       <div className="bg-cayo-burgundy text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/admin" className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-3 py-1.5 text-sm font-bold">
               חזרה
@@ -346,17 +345,15 @@ export default function AdminMapPage() {
         </div>
       </div>
 
-      {/* Save error banner */}
       {saveError && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4">
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 pt-4">
           <div className="bg-cayo-red/10 border-2 border-cayo-red/40 text-cayo-red rounded-lg px-4 py-3 text-sm font-bold">
             {saveError}
           </div>
         </div>
       )}
 
-      {/* Main content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
         <div className={editMode ? 'grid grid-cols-1 lg:grid-cols-[180px_1fr_240px] gap-4' : ''}>
           {editMode && <Palette onDragStart={() => setSelectedId(null)} />}
 
@@ -461,6 +458,46 @@ interface CanvasProps {
 
 function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onDropNew, onMove }: CanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null)
+
+  const handleStartDrag = (id: string, clientX: number, clientY: number) => {
+    const t = tables.find((t) => t.id === id)
+    if (!t) return
+    dragStartRef.current = {
+      mouseX: clientX,
+      mouseY: clientY,
+      posX: t.pos_x,
+      posY: t.pos_y,
+    }
+    setDraggingId(id)
+  }
+
+  useEffect(() => {
+    if (!draggingId) return
+    const handleMove = (e: PointerEvent) => {
+      const d = dragStartRef.current
+      if (!d || !canvasRef.current) return
+      const rect = canvasRef.current.getBoundingClientRect()
+      const scaleX = CANVAS_WIDTH / rect.width
+      const scaleY = CANVAS_HEIGHT / rect.height
+      const deltaX = (e.clientX - d.mouseX) * scaleX
+      const deltaY = (e.clientY - d.mouseY) * scaleY
+      onMove(draggingId, d.posX + deltaX, d.posY + deltaY)
+    }
+    const handleUp = () => {
+      setDraggingId(null)
+      dragStartRef.current = null
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+    window.addEventListener('pointercancel', handleUp)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
+    }
+  }, [draggingId, onMove])
 
   const toLogical = (clientX: number, clientY: number) => {
     const el = canvasRef.current
@@ -481,12 +518,8 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
     if (!editMode) return
     e.preventDefault()
     const shape = e.dataTransfer.getData('text/cayo-shape') as Shape | ''
-    const existingId = e.dataTransfer.getData('text/cayo-table-id')
-    const { x, y } = toLogical(e.clientX, e.clientY)
-    if (existingId) {
-      const t = tables.find((t) => t.id === existingId)
-      if (t) onMove(existingId, x - t.width / 2, y - t.height / 2)
-    } else if (shape === 'square' || shape === 'rectangle' || shape === 'bar_stool') {
+    if (shape === 'square' || shape === 'rectangle' || shape === 'bar_stool') {
+      const { x, y } = toLogical(e.clientX, e.clientY)
       onDropNew(shape, x, y)
     }
   }
@@ -513,7 +546,7 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
       }
       style={{
         width: '100%',
-        maxWidth: CANVAS_WIDTH,
+        maxHeight: 'calc(100vh - 180px)',
         aspectRatio: CANVAS_WIDTH + ' / ' + CANVAS_HEIGHT,
       }}
     >
@@ -524,6 +557,8 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
             table={t}
             selected={t.id === selectedId}
             editMode={editMode}
+            isDragging={t.id === draggingId}
+            onStartDrag={handleStartDrag}
             onSelect={onSelect}
           />
         ))}
@@ -561,11 +596,15 @@ function TableShape({
   table,
   selected,
   editMode,
+  isDragging,
+  onStartDrag,
   onSelect,
 }: {
   table: EditableTable
   selected: boolean
   editMode: boolean
+  isDragging: boolean
+  onStartDrag: (id: string, clientX: number, clientY: number) => void
   onSelect: (id: string | null) => void
 }) {
   const isBarStool = table.shape === 'bar_stool'
@@ -576,6 +615,11 @@ function TableShape({
     top: (table.pos_y / CANVAS_HEIGHT) * 100 + '%',
     width: (table.width / CANVAS_WIDTH) * 100 + '%',
     height: (table.height / CANVAS_HEIGHT) * 100 + '%',
+    transform: table.rotation ? 'rotate(' + table.rotation + 'deg)' : undefined,
+    transformOrigin: 'center',
+    touchAction: 'none',
+    zIndex: isDragging ? 10 : 1,
+    opacity: isDragging ? 0.85 : 1,
   }
 
   const colorClasses = table._draft
@@ -590,11 +634,10 @@ function TableShape({
   return (
     <div
       style={style}
-      draggable={editMode}
-      onDragStart={(e) => {
-        if (!editMode) return
-        e.dataTransfer.setData('text/cayo-table-id', table.id)
-        e.dataTransfer.effectAllowed = 'move'
+      onPointerDown={(e) => {
+        if (!editMode || e.button !== 0) return
+        e.stopPropagation()
+        onStartDrag(table.id, e.clientX, e.clientY)
       }}
       onClick={(e) => {
         if (!editMode) return
@@ -713,7 +756,7 @@ function EditPanel({
         </label>
       </div>
 
-      <label className="block mb-4">
+      <label className="block mb-3">
         <span className="text-xs font-bold text-cayo-burgundy/80 block mb-1">אזור</span>
         <select
           value={table.area}
@@ -724,6 +767,29 @@ function EditPanel({
           <option value="bar">בר</option>
         </select>
       </label>
+
+      <div className="mb-4">
+        <span className="text-xs font-bold text-cayo-burgundy/80 block mb-1">
+          סיבוב ({table.rotation}°)
+        </span>
+        <div className="flex gap-1">
+          {ROTATIONS.map((deg) => (
+            <button
+              key={deg}
+              type="button"
+              onClick={() => onUpdate(table.id, { rotation: deg })}
+              className={
+                'flex-1 py-1.5 text-xs font-bold rounded-lg border-2 transition-colors '
+                + (table.rotation === deg
+                  ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                  : 'bg-white text-cayo-burgundy border-cayo-burgundy/15 hover:bg-cayo-burgundy/5')
+              }
+            >
+              {deg}°
+            </button>
+          ))}
+        </div>
+      </div>
 
       <button
         type="button"

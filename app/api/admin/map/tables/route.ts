@@ -3,14 +3,9 @@ import { z } from 'zod'
 import { requireAdmin } from '@/lib/admin-auth'
 import { getServiceClient } from '@/lib/supabase'
 
-// Keep this list in sync with the SHAPE check constraint in
-// supabase-migration-map.sql.
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
 const AREAS = ['bar', 'table'] as const
 
-// Schema for POST — everything is required except `label`.
-// Keeps the defaults in sync with the DB defaults so the UI can send partial
-// payloads and they'll round-trip correctly.
 const createSchema = z
   .object({
     table_number: z.number().int().min(1),
@@ -23,17 +18,17 @@ const createSchema = z
     capacity_min: z.number().int().min(1).default(1),
     capacity_max: z.number().int().min(1).max(20).default(2),
     area: z.enum(AREAS).default('table'),
+    rotation: z
+      .number()
+      .int()
+      .refine((v) => [0, 90, 180, 270].includes(v), 'rotation חייב להיות 0/90/180/270')
+      .default(0),
   })
   .refine((v) => v.capacity_max >= v.capacity_min, {
     message: 'capacity_max חייב להיות ≥ capacity_min',
     path: ['capacity_max'],
   })
 
-// ---------------------------------------------
-// GET /api/admin/map/tables
-// Returns the list of tables. By default only active tables are returned;
-// pass ?includeInactive=true to include soft-deleted ones.
-// ---------------------------------------------
 export async function GET(req: NextRequest) {
   const denied = await requireAdmin()
   if (denied) return denied
@@ -52,17 +47,12 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await query
-
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
   return NextResponse.json(data ?? [])
 }
 
-// ---------------------------------------------
-// POST /api/admin/map/tables
-// Creates a new table. `table_number` must be unique (enforced by DB).
-// ---------------------------------------------
 export async function POST(req: NextRequest) {
   const denied = await requireAdmin()
   if (denied) return denied
@@ -90,10 +80,9 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) {
-    // Unique violation on table_number — give the UI a friendly message.
     if (error.code === '23505') {
       return NextResponse.json(
-        { error: `מספר שולחן ${parsed.data.table_number} כבר קיים` },
+        { error: 'מספר שולחן ' + parsed.data.table_number + ' כבר קיים' },
         { status: 409 },
       )
     }
