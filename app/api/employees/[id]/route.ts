@@ -6,15 +6,34 @@ import { getServiceClient } from '@/lib/supabase'
 const ROLES = ['bartender', 'waiter', 'host', 'kitchen', 'dishwasher', 'manager'] as const
 const GENDERS = ['male', 'female', 'other'] as const
 
-const updateSchema = z.object({
-  full_name: z.string().min(2).optional(),
-  role: z.enum(ROLES).optional(),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  gender: z.enum(GENDERS).optional(),
-  hourly_rate: z.number().min(0).optional(),
-  active: z.boolean().optional(),
-})
+const updateSchema = z
+  .object({
+    full_name: z.string().min(2).optional(),
+    role: z.enum(ROLES).optional(),
+    // If provided, replaces the full list of secondary roles.
+    secondary_roles: z.array(z.enum(ROLES)).optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    gender: z.enum(GENDERS).optional(),
+    hourly_rate: z.number().min(0).optional(),
+    active: z.boolean().optional(),
+  })
+  .refine(
+    d =>
+      !d.role ||
+      !d.secondary_roles ||
+      !d.secondary_roles.includes(d.role),
+    {
+      message: 'התפקיד הראשי לא יכול להופיע גם כתפקיד משני',
+      path: ['secondary_roles'],
+    }
+  )
+  .refine(
+    d =>
+      !d.secondary_roles ||
+      new Set(d.secondary_roles).size === d.secondary_roles.length,
+    { message: 'תפקיד משני כפול', path: ['secondary_roles'] }
+  )
 
 type Params = { params: Promise<{ id: string }> }
 

@@ -11,6 +11,9 @@ interface Employee {
   id: string
   full_name: string
   role: Role
+  // Extra roles this employee can be scheduled as (e.g. a bartender who
+  // sometimes covers waiter shifts). Display/color is still driven by `role`.
+  secondary_roles: Role[]
   phone: string
   email: string
   gender: Gender | null
@@ -39,6 +42,7 @@ const GENDERS: Gender[] = ['male', 'female', 'other']
 const emptyForm = {
   full_name: '',
   role: 'waiter' as Role,
+  secondary_roles: [] as Role[],
   phone: '',
   email: '',
   gender: '' as Gender | '',
@@ -78,12 +82,23 @@ export default function EmployeesPage() {
     setForm({
       full_name: emp.full_name,
       role: emp.role,
+      secondary_roles: emp.secondary_roles || [],
       phone: emp.phone || '',
       email: emp.email || '',
       gender: emp.gender || '',
     })
     setError('')
     setShowModal(true)
+  }
+
+  function toggleSecondary(role: Role) {
+    setForm(f => {
+      // Can't pick primary as a secondary.
+      if (f.role === role) return f
+      return f.secondary_roles.includes(role)
+        ? { ...f, secondary_roles: f.secondary_roles.filter(r => r !== role) }
+        : { ...f, secondary_roles: [...f.secondary_roles, role] }
+    })
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -206,9 +221,20 @@ export default function EmployeesPage() {
                   <tr key={emp.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!emp.active ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-3 font-medium text-gray-900">{emp.full_name}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-cayo-burgundy/10 text-cayo-burgundy">
-                        {ROLE_LABEL[emp.role]}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-cayo-burgundy/10 text-cayo-burgundy">
+                          {ROLE_LABEL[emp.role]}
+                        </span>
+                        {(emp.secondary_roles || []).map(r => (
+                          <span
+                            key={r}
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500"
+                            title="תפקיד משני"
+                          >
+                            {ROLE_LABEL[r]}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-gray-600 ltr" dir="ltr">{emp.phone || '—'}</td>
                     <td className="px-4 py-3">
@@ -271,10 +297,19 @@ export default function EmployeesPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד ראשי *</label>
                   <select
                     value={form.role}
-                    onChange={e => setForm(f => ({ ...f, role: e.target.value as Role }))}
+                    onChange={e => {
+                      const next = e.target.value as Role
+                      // If the new primary was in secondary_roles, remove it
+                      // so we don't violate the "no duplicate" rule.
+                      setForm(f => ({
+                        ...f,
+                        role: next,
+                        secondary_roles: f.secondary_roles.filter(r => r !== next),
+                      }))
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
                   >
                     {ROLES.map(r => (
@@ -294,6 +329,34 @@ export default function EmployeesPage() {
                       <option key={g} value={g}>{GENDER_LABEL[g]}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  תפקידים נוספים
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  תפקידים שהעובד/ת יכול/ה למלא בנוסף. יופיעו גם ברשימה ב&quot;שעות עבודה&quot;.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ROLES.filter(r => r !== form.role).map(r => {
+                    const selected = form.secondary_roles.includes(r)
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => toggleSecondary(r)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
+                          selected
+                            ? 'bg-cayo-burgundy/10 border-cayo-burgundy/40 text-cayo-burgundy'
+                            : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                        }`}
+                      >
+                        {ROLE_LABEL[r]}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 

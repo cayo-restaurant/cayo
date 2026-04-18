@@ -10,6 +10,11 @@ interface Employee {
   id: string
   full_name: string
   role: Role
+  // Extra roles the employee is qualified for. Used to expand the "add to
+  // slot" dropdown so a waiter with bartender-secondary can be scheduled as
+  // a bartender on a given day. Display color/grouping is still driven by
+  // `role` (primary).
+  secondary_roles: Role[]
   hourly_rate: number
   active: boolean
 }
@@ -292,7 +297,16 @@ export default function HoursPage() {
   function availableForSlot(date: string, role: Role): Employee[] {
     const dayShifts = shifts.filter(s => s.date === date)
     const assignedIds = new Set(dayShifts.map(s => s.employee_id))
-    return employees.filter(e => e.role === role && !assignedIds.has(e.id))
+    // Primary-role matches come first, then secondary-role matches, so the
+    // dropdown always shows "real" candidates before backup fills.
+    const primary: Employee[] = []
+    const secondary: Employee[] = []
+    for (const e of employees) {
+      if (assignedIds.has(e.id)) continue
+      if (e.role === role) primary.push(e)
+      else if ((e.secondary_roles || []).includes(role)) secondary.push(e)
+    }
+    return [...primary, ...secondary]
   }
 
   // Mobile inline edit functions
@@ -681,11 +695,19 @@ export default function HoursPage() {
                       >{"\u05d4\u05d5\u05e1\u05e3 \u05e2\u05d5\u05d1\u05d3"}</button>
                       {mobileDrop === dropKey && (
                         <div className="absolute bottom-full mb-1 right-4 left-4 z-30 bg-white border border-gray-200 rounded-lg shadow-xl max-h-[200px] overflow-y-auto">
-                          {available.map(emp => (
-                            <button key={emp.id} onClick={() => addShift(mobileDay, emp.id)} className="w-full text-right px-4 py-3 text-sm font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0">
-                              {emp.full_name}
-                            </button>
-                          ))}
+                          {available.map(emp => {
+                            const isSecondary = emp.role !== role
+                            return (
+                              <button key={emp.id} onClick={() => addShift(mobileDay, emp.id)} className="w-full text-right px-4 py-3 text-sm font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0 flex items-center justify-between">
+                                <span>{emp.full_name}</span>
+                                {isSecondary && (
+                                  <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                                    משני
+                                  </span>
+                                )}
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -773,11 +795,19 @@ export default function HoursPage() {
                                       {available.length === 0 ? (
                                         <div className="px-3 py-2 text-xs text-gray-400">{"\u05d0\u05d9\u05df \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05d6\u05de\u05d9\u05e0\u05d9\u05dd"}</div>
                                       ) : (
-                                        available.map(emp => (
-                                          <button key={emp.id} onClick={() => addShift(date, emp.id)} className="w-full text-right px-3 py-2.5 text-xs font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0">
-                                            {emp.full_name}
-                                          </button>
-                                        ))
+                                        available.map(emp => {
+                                          const isSecondary = emp.role !== role
+                                          return (
+                                            <button key={emp.id} onClick={() => addShift(date, emp.id)} className="w-full text-right px-3 py-2.5 text-xs font-medium hover:bg-cayo-burgundy/5 transition-colors border-b border-gray-100 last:border-0 flex items-center justify-between gap-2">
+                                              <span>{emp.full_name}</span>
+                                              {isSecondary && (
+                                                <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full shrink-0">
+                                                  משני
+                                                </span>
+                                              )}
+                                            </button>
+                                          )
+                                        })
                                       )}
                                     </div>
                                   )}
