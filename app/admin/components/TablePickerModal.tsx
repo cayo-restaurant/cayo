@@ -1,11 +1,18 @@
 'use client'
 
-// Phase 1 picker: single-table assignment via a simple list.
-// Multi-table ("+" to add another table) lands in Phase 2 along with
-// the mini-map preview. The API endpoint already accepts an array so
-// Phase 2 is purely a UI change.
-
-import { useEffect, useState } from 'react'
+// Table picker — single OR combined tables.
+//
+// Multi-select by checkbox. The order the hostess taps rows in is
+// preserved: the FIRST selected table becomes the "primary" (the one
+// that shows on the reservation card as `שולחן N +extras`). We keep
+// selection state as an ordered array rather than a Set so that
+// information doesn't get lost on re-renders.
+//
+// The API endpoint at /api/reservations/[id]/tables has always
+// accepted `{ tableIds, primaryTableId }` — the single-select UX we
+// shipped in Phase 1 just never exercised that shape. This picker
+// now does.
+import { useEffect, useMemo, useState } from 'react'
 
 interface TableLite {
   id: string
@@ -70,6 +77,16 @@ interface ConflictInfo {
   time: string
 }
 
+// Build the initial selection array from a reservation's current tables.
+// Primary goes first (so re-opening an existing assignment keeps its
+// "primary" flag), then the rest in server order.
+function seedSelection(tables: AssignedTable[]): string[] {
+  const primary = tables.find(t => t.isPrimary)
+  if (!primary) return tables.map(t => t.id)
+  const rest = tables.filter(t => !t.isPrimary).map(t => t.id)
+  return [primary.id, ...rest]
+}
+
 function findConflict(
   tableId: string,
   target: ReservationLite,
@@ -97,14 +114,15 @@ export default function TablePickerModal({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(
-    reservation.tables.find(t => t.isPrimary)?.id ?? null
-  )
+  // Ordered list — index 0 is the primary (the one that shows on the
+  // reservation card). We build the initial list by putting the current
+  // primary first, then the rest in whatever order the server returned.
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => seedSelection(reservation.tables))
 
   // Re-seed selection when reservation changes (e.g. modal re-opened for another row)
   useEffect(() => {
     if (open) {
-      setSelectedId(reservation.tables.find(t => t.isPrimary)?.id ?? null)
+      setSelectedIds(seedSelection(reservation.tables))
       setError('')
     }
   }, [open, reservation.id, reservation.tables])
@@ -156,9 +174,18 @@ export default function TablePickerModal({
     }
   }
 
+  function toggleTable(id: string) {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
+    )
+  }
+
   const handleSave = () => {
-    if (selectedId) {
-      save([selectedId], selectedId)
+    if (selectedIds.length > 0) {
+      // First-selected is primary. This matches the hostess's mental
+      // model: whichever she tapped first is "the main table" she's
+      // seating the party at; anything added after is filler.
+      save(selectedIds, selectedIds[0])
     } else {
       save([], null)
     }
@@ -168,20 +195,36 @@ export default function TablePickerModal({
     save([], null)
   }
 
+  // Capacity summary for the combo — sum of min and max across selected.
+  // Only surfaced when 2+ are selected (a single table already shows its
+  // own capacity in the row).
+  const capacityTotals = useMemo(() => {
+    if (selectedIds.length < 2) return null
+    const byId = new Map(tables.map(t => [t.id, t]))
+    let min = 0
+    let max = 0
+    for (const id of selectedIds) {
+      const t = byId.get(id)
+      if (!t) continue
+      min += t.capacity_min
+      max += t.capacity_max
+    }
+    return { min, max }
+  }, [selectedIds, tables])
+
   const barTables = tables.filter(t => t.area === 'bar')
   const areaTables = tables.filter(t => t.area === 'table')
+  const primaryId = selectedIds[0] ?? null
+  const showPrimaryBadge = selectedIds.length >= 2 // no point showing "primary" when there's only one
   const renderRow = (t: TableLite) => {
     const conflict = findConflict(t.id, reservation, allReservations)
-    const isSelected = selectedId === t.id
-    const oversize = reservation && 'guests' in reservation
-      ? false // guests not in ReservationLite — phase 3 will add oversize
-      : false
-    void oversize // not used yet
+    const isSelected = selectedIds.includes(t.id)
+    const isPrimary = showPrimaryBadge && primaryId === t.id
     return (
       <button
         key={t.id}
         type="button"
-        onClick={() => setSelectedId(isSelected ? null : t.id)}
+        onClick={() => toggleTable(t.id)}
         className={`w-full text-right p-3 rounded-xl border-2 transition-colors ${
           isSelected
             ? 'border-cayo-burgundy bg-cayo-burgundy/10'
@@ -190,9 +233,16 @@ export default function TablePickerModal({
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <p className="font-black text-cayo-burgundy">
-              שולחן {t.table_number}
-              {t.label ? <span className="font-normal text-sm text-gray-500 mr-2">· {t.label}</span> : null}
+            <p className="font-black text-cayo-burgundy flex items-center gap-2 flex-wrap">
+              <span>
+                שולחן {t.table_number}
+                {t.label ? <span className="font-normal text-sm text-gray-500 mr-2">· {t.label}</span> : null}
+              </span>
+              {isPrimary && (
+                <span className="text-[10px] font-black uppercase tracking-wider bg-cayo-burgundy text-white px-1.5 py-0.5 rounded">
+                  ראשי
+                </span>
+              )}
             </p>
             <p className="text-xs text-gray-500 mt-0.5">
               קיבולת {t.capacity_min === t.capacity_max ? t.capacity_max : `${t.capacity_min}–${t.capacity_max}`}
@@ -204,7 +254,7 @@ export default function TablePickerModal({
             )}
           </div>
           <div
-            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+            className={`w-6 h-6 rounded-md border-2 flex items-center justify-center ${
               isSelected ? 'border-cayo-burgundy bg-cayo-burgundy text-white' : 'border-gray-300'
             }`}
           >
@@ -269,6 +319,14 @@ export default function TablePickerModal({
 
         {/* Footer */}
         <div className="p-5 border-t border-cayo-burgundy/10 space-y-2">
+          {capacityTotals && (
+            <p className="text-xs font-bold text-cayo-burgundy/80 text-center bg-cayo-burgundy/5 rounded-lg py-1.5">
+              קיבולת שילוב {capacityTotals.min === capacityTotals.max
+                ? capacityTotals.max
+                : `${capacityTotals.min}–${capacityTotals.max}`}
+              {' '}סועדים · {selectedIds.length} שולחנות
+            </p>
+          )}
           {error && (
             <p className="text-sm text-cayo-red font-bold text-center">{error}</p>
           )}
@@ -291,7 +349,7 @@ export default function TablePickerModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || (!selectedId && reservation.tables.length === 0)}
+              disabled={saving || (selectedIds.length === 0 && reservation.tables.length === 0)}
               className="flex-1 px-4 py-2.5 rounded-xl bg-cayo-burgundy text-white font-black text-sm hover:bg-cayo-burgundy/90 disabled:opacity-50"
             >
               {saving ? 'שומר…' : 'שמור'}
