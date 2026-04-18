@@ -407,6 +407,15 @@ export function ReservationRow({
     e.stopPropagation()
     if (onQuickAssign && r.recommendedTable) onQuickAssign(r.recommendedTable.id)
   }
+  // Combined "arrived + assign recommended table" — chains the two
+  // existing handlers. Only surfaced when the guest is likely here now
+  // (late / soon buckets). Both API calls fire; if either errors the
+  // individual handler's own load() fallback corrects state.
+  function triggerArriveAndAssign(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (onQuickAssign && r.recommendedTable) onQuickAssign(r.recommendedTable.id)
+    onArrived()
+  }
 
   // The assignment pill is only meaningful while a seating decision is
   // live — confirmed (upcoming/soon/late) or arrived. Once the guest is
@@ -543,6 +552,25 @@ export function ReservationRow({
             </div>
           </div>
 
+          {isLate && r.phone && (
+            // Direct-dial pill for late reservations — the single most
+            // time-sensitive action on the shift. Lives on the collapsed
+            // row so the hostess can tap without expanding. `tel:` links
+            // open the native dialer on mobile. stopPropagation so the
+            // card doesn't also expand.
+            <a
+              href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
+              onClick={e => e.stopPropagation()}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-black shrink-0 active:scale-95 transition-transform ${
+                isVeryLate ? 'bg-cayo-red text-white' : 'bg-cayo-orange text-white'
+              }`}
+              aria-label={`התקשרי ל-${r.name || 'הזמנה'}`}
+            >
+              <span className="text-base leading-none">📞</span>
+              <span>התקשרי</span>
+            </a>
+          )}
+
           <span
             className="text-cayo-burgundy/40 text-xs font-black px-1"
             aria-hidden="true"
@@ -556,28 +584,52 @@ export function ReservationRow({
             {canAssign && showQuickAssign && r.recommendedTable && (
               // Split pill: big one-tap action on the right (primary CTA)
               // and a small "אחר" escape hatch that opens the full picker
-              // when the suggestion isn't what the hostess wants. The
-              // split preserves discoverability without demanding a
-              // long-press gesture that mobile users rarely find.
-              <div className="flex gap-1.5">
-                <button
-                  onClick={triggerQuickAssign}
-                  disabled={pending}
-                  className="flex-1 h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy text-white border-2 border-cayo-burgundy"
-                  aria-label={`שבצי שולחן ${r.recommendedTable.table_number}`}
-                >
-                  <span>🪑</span>
-                  <span>שבצי שולחן {r.recommendedTable.table_number}</span>
-                </button>
-                <button
-                  onClick={triggerAssign}
-                  disabled={pending}
-                  className="w-16 h-11 rounded-xl font-black text-sm flex items-center justify-center active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy/5 text-cayo-burgundy/80 border-2 border-cayo-burgundy/20"
-                  aria-label="בחרי שולחן אחר או שילוב"
-                >
-                  אחר
-                </button>
-              </div>
+              // when the suggestion isn't what the hostess wants.
+              //
+              // Bucket-aware primary:
+              //   late / soon  → "✓ הגיע · שולחן N" (guest is here now;
+              //                   chain arrive + assign in one tap)
+              //   upcoming     → "🪑 שבצי שולחן N" (pre-plan only; don't
+              //                   mark arrived before the guest walks in)
+              // Either way the "אחר" button opens the picker, which only
+              // assigns — so pre-plan-later-in-the-shift is still a thing
+              // the hostess can do for late/soon rows via the picker.
+              (() => {
+                const combine = r.bucket === 'late' || r.bucket === 'soon'
+                return (
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={combine ? triggerArriveAndAssign : triggerQuickAssign}
+                      disabled={pending}
+                      className={`flex-1 h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 text-white border-2 ${
+                        combine
+                          ? 'bg-cayo-teal border-cayo-teal'
+                          : 'bg-cayo-burgundy border-cayo-burgundy'
+                      }`}
+                      aria-label={
+                        combine
+                          ? `הגיע ושבצי לשולחן ${r.recommendedTable!.table_number}`
+                          : `שבצי שולחן ${r.recommendedTable!.table_number}`
+                      }
+                    >
+                      <span>{combine ? '✓' : '🪑'}</span>
+                      <span>
+                        {combine
+                          ? `הגיע · שולחן ${r.recommendedTable!.table_number}`
+                          : `שבצי שולחן ${r.recommendedTable!.table_number}`}
+                      </span>
+                    </button>
+                    <button
+                      onClick={triggerAssign}
+                      disabled={pending}
+                      className="w-16 h-11 rounded-xl font-black text-sm flex items-center justify-center active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy/5 text-cayo-burgundy/80 border-2 border-cayo-burgundy/20"
+                      aria-label="בחרי שולחן אחר או שילוב"
+                    >
+                      אחר
+                    </button>
+                  </div>
+                )
+              })()
             )}
             {canAssign && !showQuickAssign && (
               <button

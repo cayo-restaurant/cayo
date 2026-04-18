@@ -299,7 +299,11 @@ export default function HostDashboard() {
           </Link>
         </div>
 
-        {/* Late banner — most important piece of the UI */}
+        {/* Late banner — most important piece of the UI. When there's a
+            single late reservation we surface a big call-now button right
+            here so the hostess reacts with one tap from the top of the
+            screen. When there are multiple, the per-row phone pills carry
+            the action (we can't dial "all of them" at once). */}
         {lateItems.length > 0 && (
           <div className="mb-4 bg-cayo-red/10 border-2 border-cayo-red/40 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -311,6 +315,18 @@ export default function HostDashboard() {
             <p className="text-xs text-cayo-red/80 font-bold">
               יש להתקשר ולוודא הגעה, או לסמן &quot;לא הגיע/ה&quot;
             </p>
+            {lateItems.length === 1 && lateItems[0].phone && (
+              <a
+                href={`tel:${lateItems[0].phone.replace(/[^\d+]/g, '')}`}
+                className="mt-3 w-full h-11 rounded-xl bg-cayo-red text-white font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                aria-label={`התקשרי ל-${lateItems[0].name || 'הזמנה המאחרת'}`}
+              >
+                <span className="text-lg leading-none">📞</span>
+                <span>
+                  התקשרי {lateItems[0].name ? `ל-${lateItems[0].name}` : ''}
+                </span>
+              </a>
+            )}
           </div>
         )}
 
