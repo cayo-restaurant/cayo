@@ -5,6 +5,7 @@ import { getServiceClient } from '@/lib/supabase'
 
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
 const AREAS = ['bar', 'table'] as const
+const KINDS = ['table', 'bar_counter', 'host_stand', 'waiter_station', 'column'] as const
 
 const updateSchema = z
   .object({
@@ -23,6 +24,7 @@ const updateSchema = z
       .int()
       .refine((v) => [0, 90, 180, 270].includes(v), 'rotation חייב להיות 0/90/180/270')
       .optional(),
+    kind: z.enum(KINDS).optional(),
     active: z.boolean().optional(),
   })
   .refine(
@@ -30,10 +32,7 @@ const updateSchema = z
       v.capacity_min === undefined ||
       v.capacity_max === undefined ||
       v.capacity_max >= v.capacity_min,
-    {
-      message: 'capacity_max חייב להיות ≥ capacity_min',
-      path: ['capacity_max'],
-    },
+    { message: 'capacity_max חייב להיות ≥ capacity_min', path: ['capacity_max'] },
   )
 
 type Params = { params: Promise<{ id: string }> }
@@ -45,20 +44,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params
 
   let body: unknown
-  try {
-    body = await req.json()
-  } catch {
+  try { body = await req.json() } catch {
     return NextResponse.json({ error: 'גוף הבקשה אינו JSON תקין' }, { status: 400 })
   }
 
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.flatten().fieldErrors },
-      { status: 400 },
-    )
+    return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
-
   if (Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: 'לא הועברו שינויים' }, { status: 400 })
   }
@@ -83,7 +76,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
   return NextResponse.json(data)
 }
 
@@ -114,6 +106,5 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
   return NextResponse.json({ ok: true, table: data })
 }

@@ -12,7 +12,7 @@ import { shiftDayLocal } from '@/lib/shift-day'
 const HOST_ALLOWED_STATUSES = new Set(['arrived', 'no_show', 'confirmed'])
 
 const patchSchema = z.object({
-  status: z.enum(['pending', 'confirmed', 'cancelled', 'arrived', 'no_show']).optional(),
+  status: z.enum(['pending', 'confirmed', 'cancelled', 'arrived', 'no_show', 'completed']).optional(),
   // Admin edits: contact fields may be blanked out (e.g. anonymous walk-in).
   // Empty string is accepted; non-empty must still match the format.
   name: z.string().max(100).optional(),

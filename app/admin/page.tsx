@@ -5,9 +5,22 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import cayoLogo from '../../cayo_brand_page_005.png'
+import TablePickerModal from './components/TablePickerModal'
 
-type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show'
+type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 type Area = 'bar' | 'table'
+
+// Mirror of AssignedTable in lib/assignments-store.ts — duplicated here so the
+// client bundle doesn't pull in the server-only supabase service client.
+interface AssignedTable {
+  id: string
+  tableNumber: number
+  label: string | null
+  area: Area
+  capacityMin: number
+  capacityMax: number
+  isPrimary: boolean
+}
 
 interface Reservation {
   id: string
@@ -22,6 +35,7 @@ interface Reservation {
   notes?: string
   createdAt: string
   updatedAt: string
+  tables: AssignedTable[]
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -30,6 +44,7 @@ const STATUS_LABEL: Record<Status, string> = {
   cancelled: 'בוטל',
   arrived: 'הגיעו',
   no_show: 'לא הגיעו',
+  completed: 'הסתיים',
 }
 
 const STATUS_STYLES: Record<Status, string> = {
@@ -38,6 +53,7 @@ const STATUS_STYLES: Record<Status, string> = {
   cancelled: 'bg-cayo-red/15 text-cayo-red border-cayo-red/30',
   arrived: 'bg-cayo-burgundy/15 text-cayo-burgundy border-cayo-burgundy/30',
   no_show: 'bg-black/10 text-black/70 border-black/20',
+  completed: 'bg-cayo-teal/10 text-cayo-teal/70 border-cayo-teal/20',
 }
 
 const AREA_LABEL: Record<Area, string> = {
@@ -127,6 +143,7 @@ const TIME_BADGE_STYLES: Record<Status, string> = {
   cancelled: 'bg-cayo-red/15 text-cayo-red',
   arrived: 'bg-cayo-burgundy/15 text-cayo-burgundy',
   no_show: 'bg-black/10 text-black/70',
+  completed: 'bg-cayo-teal/10 text-cayo-teal/70',
 }
 
 // Build a pre-filled WhatsApp confirmation message matching the reservation
@@ -332,6 +349,7 @@ function ReservationModal({
               <option value="cancelled">בוטל</option>
               <option value="arrived">הגיעו</option>
               <option value="no_show">לא הגיעו</option>
+              <option value="completed">הסתיים</option>
             </select>
           </div>
           <div>
@@ -396,6 +414,9 @@ function Dashboard() {
     | { mode: 'edit'; initial: FormState & { id: string; updatedAt: string } }
     | null
   >(null)
+  // Reservation whose table assignment the hostess is currently editing.
+  // `null` = modal closed. Opened by clicking the assignment row/🪑 button on any card.
+  const [pickerFor, setPickerFor] = useState<Reservation | null>(null)
 
   // Today overview — shifts
   const [todayShifts, setTodayShifts] = useState<TodayShift[]>([])
@@ -441,10 +462,10 @@ function Dashboard() {
   // a modal is open so we don't blow away an in-progress edit.
   useEffect(() => {
     const id = setInterval(() => {
-      if (modal === null && deleteConfirm === null) load()
+      if (modal === null && deleteConfirm === null && pickerFor === null) load()
     }, 60_000)
     return () => clearInterval(id)
-  }, [modal, deleteConfirm])
+  }, [modal, deleteConfirm, pickerFor])
 
   async function changeStatus(id: string, status: Status) {
     await fetch(`/api/reservations/${id}`, {
@@ -663,6 +684,8 @@ function Dashboard() {
           ? 'border-cayo-red/20 bg-cayo-red/5 opacity-60'
           : r.status === 'no_show'
           ? 'border-black/15 bg-black/5 opacity-70'
+          : r.status === 'completed'
+          ? 'border-cayo-teal/20 bg-cayo-teal/5 opacity-75'
           : r.status === 'arrived'
           ? 'border-cayo-burgundy/30 bg-cayo-burgundy/5'
           : 'border-cayo-burgundy/15 hover:border-cayo-burgundy/30'
@@ -744,6 +767,42 @@ function Dashboard() {
           {r.notes && (
             <p className="text-xs text-cayo-burgundy/60 mt-1.5 italic">הערה: {r.notes}</p>
           )}
+
+          {/* Physical-table assignment row.
+              Hidden for cancelled / no_show / completed — no point assigning a
+              table to a reservation that's already resolved. */}
+          {r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed' && (
+            <div className="mt-2">
+              {r.tables.length > 0 ? (
+                <button
+                  onClick={() => setPickerFor(r)}
+                  className="inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-full bg-cayo-burgundy/10 text-cayo-burgundy hover:bg-cayo-burgundy/20 transition-colors"
+                  title="שינוי שיוך שולחן"
+                >
+                  <span>🪑</span>
+                  <span>
+                    שולחן {r.tables.find(t => t.isPrimary)?.tableNumber ?? r.tables[0].tableNumber}
+                    {r.tables.length > 1 && (
+                      <span className="font-bold opacity-70"> +{r.tables.length - 1}</span>
+                    )}
+                  </span>
+                  <span className="opacity-50">·</span>
+                  <span className="text-[10px] font-bold opacity-80">עריכה</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setPickerFor(r)}
+                  className="inline-flex items-center gap-1.5 text-xs font-black px-2.5 py-1 rounded-full bg-cayo-orange/15 text-cayo-orange hover:bg-cayo-orange/25 transition-colors"
+                  title="שיוך שולחן"
+                >
+                  <span>⚠</span>
+                  <span>ללא שולחן</span>
+                  <span className="opacity-50">·</span>
+                  <span>שייך</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Primary actions + overflow menu */}
@@ -809,7 +868,7 @@ function Dashboard() {
                   >
                     עריכה
                   </button>
-                  {(r.status === 'cancelled' || r.status === 'arrived' || r.status === 'no_show') && (
+                  {(r.status === 'cancelled' || r.status === 'arrived' || r.status === 'no_show' || r.status === 'completed') && (
                     <button
                       onClick={() => { setMenuOpenFor(null); changeStatus(r.id, 'confirmed') }}
                       className="w-full text-right px-4 py-2 text-sm font-bold text-cayo-burgundy hover:bg-cayo-burgundy/5"
@@ -1296,6 +1355,24 @@ function Dashboard() {
           onSaved={() => {
             setModal(null)
             load()
+          }}
+        />
+      )}
+
+      {pickerFor && (
+        <TablePickerModal
+          open={true}
+          onClose={() => setPickerFor(null)}
+          reservation={pickerFor}
+          allReservations={items}
+          onSaved={(tables) => {
+            // Optimistic local update — replace the tables array on the
+            // affected reservation only. The API already returned the
+            // authoritative list so we don't need a re-fetch.
+            setItems(prev =>
+              prev.map(it => (it.id === pickerFor.id ? { ...it, tables } : it))
+            )
+            setPickerFor(null)
           }}
         />
       )}

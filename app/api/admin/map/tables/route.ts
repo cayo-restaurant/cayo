@@ -5,11 +5,12 @@ import { getServiceClient } from '@/lib/supabase'
 
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
 const AREAS = ['bar', 'table'] as const
+const KINDS = ['table', 'bar_counter', 'host_stand', 'waiter_station', 'column'] as const
 
 const createSchema = z
   .object({
     table_number: z.number().int().min(1),
-    label: z.string().optional(),
+    label: z.string().nullable().optional(),
     shape: z.enum(SHAPES),
     width: z.number().int().min(20).max(500).default(80),
     height: z.number().int().min(20).max(500).default(80),
@@ -23,6 +24,7 @@ const createSchema = z
       .int()
       .refine((v) => [0, 90, 180, 270].includes(v), 'rotation חייב להיות 0/90/180/270')
       .default(0),
+    kind: z.enum(KINDS).default('table'),
   })
   .refine((v) => v.capacity_max >= v.capacity_min, {
     message: 'capacity_max חייב להיות ≥ capacity_min',
@@ -37,19 +39,11 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get('includeInactive') === 'true'
 
   const sb = getServiceClient()
-  let query = sb
-    .from('restaurant_tables')
-    .select('*')
-    .order('table_number')
-
-  if (!includeInactive) {
-    query = query.eq('active', true)
-  }
+  let query = sb.from('restaurant_tables').select('*').order('table_number')
+  if (!includeInactive) query = query.eq('active', true)
 
   const { data, error } = await query
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data ?? [])
 }
 
@@ -58,18 +52,13 @@ export async function POST(req: NextRequest) {
   if (denied) return denied
 
   let body: unknown
-  try {
-    body = await req.json()
-  } catch {
+  try { body = await req.json() } catch {
     return NextResponse.json({ error: 'גוף הבקשה אינו JSON תקין' }, { status: 400 })
   }
 
   const parsed = createSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.flatten().fieldErrors },
-      { status: 400 },
-    )
+    return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
   const sb = getServiceClient()
@@ -88,6 +77,5 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
   return NextResponse.json(data, { status: 201 })
 }

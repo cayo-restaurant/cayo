@@ -1,7 +1,17 @@
 import crypto from 'crypto'
 import { getServiceClient } from './supabase'
+import {
+  getAssignmentsByReservationIds,
+  type AssignedTable,
+} from './assignments-store'
 
-export type ReservationStatus = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show'
+export type ReservationStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'cancelled'
+  | 'arrived'
+  | 'no_show'
+  | 'completed'
 export type ReservationArea = 'bar' | 'table'
 
 export interface Reservation {
@@ -18,6 +28,9 @@ export interface Reservation {
   notes?: string
   createdAt: string
   updatedAt: string
+  // Populated by listReservations/getReservation. May be empty if
+  // the hostess hasn't assigned a physical table yet.
+  tables: AssignedTable[]
 }
 
 // ── DB row shape (snake_case) ──
@@ -37,7 +50,7 @@ interface Row {
   updated_at: string
 }
 
-function rowToReservation(row: Row): Reservation {
+function rowToReservation(row: Row, tables: AssignedTable[] = []): Reservation {
   return {
     id: row.id,
     name: row.name,
@@ -52,6 +65,7 @@ function rowToReservation(row: Row): Reservation {
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    tables,
   }
 }
 
@@ -65,7 +79,10 @@ export async function listReservations(): Promise<Reservation[]> {
     .order('date', { ascending: true })
     .order('time', { ascending: true })
   if (error) throw error
-  return (data as Row[]).map(rowToReservation)
+  const rows = (data ?? []) as Row[]
+  if (rows.length === 0) return []
+  const assignments = await getAssignmentsByReservationIds(rows.map(r => r.id))
+  return rows.map(r => rowToReservation(r, assignments.get(r.id) ?? []))
 }
 
 export async function getReservation(id: string): Promise<Reservation | null> {
@@ -75,11 +92,13 @@ export async function getReservation(id: string): Promise<Reservation | null> {
     if ((error as { code?: string }).code === 'PGRST116') return null
     throw error
   }
-  return data ? rowToReservation(data as Row) : null
+  if (!data) return null
+  const assignments = await getAssignmentsByReservationIds([id])
+  return rowToReservation(data as Row, assignments.get(id) ?? [])
 }
 
 export async function createReservation(
-  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt'>
+  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'tables'>
 ): Promise<Reservation> {
   const sb = getServiceClient()
   const now = new Date().toISOString()
@@ -104,7 +123,8 @@ export async function createReservation(
     .select('*')
     .single()
   if (error) throw error
-  return rowToReservation(inserted as Row)
+  // New reservations have no assignments yet.
+  return rowToReservation(inserted as Row, [])
 }
 
 export interface UpdateOptions {
@@ -116,7 +136,7 @@ export interface UpdateOptions {
 
 export async function updateReservation(
   id: string,
-  patch: Partial<Omit<Reservation, 'id' | 'createdAt'>>,
+  patch: Partial<Omit<Reservation, 'id' | 'createdAt' | 'tables'>>,
   opts: UpdateOptions = {}
 ): Promise<Reservation | null> {
   const sb = getServiceClient()
@@ -145,12 +165,16 @@ export async function updateReservation(
   }
 
   const { data, error } = await query.select('*').single()
-  
+
   if (error) {
     if ((error as { code?: string }).code === 'PGRST116') return null
     throw error
   }
-  return data ? rowToReservation(data as Row) : null
+  if (!data) return null
+  // Preserve existing assignments on patch — re-fetch so callers receive
+  // the authoritative list.
+  const assignments = await getAssignmentsByReservationIds([id])
+  return rowToReservation(data as Row, assignments.get(id) ?? [])
 }
 
 // Auto-close the books on a previous shift day. Any reservation whose

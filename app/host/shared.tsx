@@ -5,8 +5,21 @@
 // (reservations already marked arrived / no-show).
 import { useEffect, useRef, useState } from 'react'
 
-export type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show'
+export type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 export type Area = 'bar' | 'table'
+
+// Minimal shape — the host surfaces don't currently act on `tables`, but we
+// accept the field so the API response shape matches cleanly. The physical
+// table picker is admin-only in Phase 1.
+export interface AssignedTable {
+  id: string
+  tableNumber: number
+  label: string | null
+  area: Area
+  capacityMin: number
+  capacityMax: number
+  isPrimary: boolean
+}
 
 export interface Reservation {
   id: string
@@ -21,6 +34,7 @@ export interface Reservation {
   notes?: string
   createdAt: string
   updatedAt: string
+  tables: AssignedTable[]
 }
 
 // A confirmed reservation is considered "late" this many minutes after its
@@ -33,6 +47,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   cancelled: 'בוטל',
   arrived: 'הגיע/ה',
   no_show: 'לא הגיע/ה',
+  completed: 'הסתיים',
 }
 
 export const AREA_LABEL: Record<Area, string> = {
@@ -129,7 +144,10 @@ export function bucketOf(r: Reservation, now: number): { bucket: Bucket; lateMin
 
   if (r.status === 'arrived') return { bucket: 'arrived', lateMinutes: 0 }
   if (r.status === 'no_show') return { bucket: 'no_show', lateMinutes: 0 }
-  if (r.status === 'cancelled' || r.status === 'pending') {
+  if (r.status === 'cancelled' || r.status === 'pending' || r.status === 'completed') {
+    // Completed reservations already left — they don't belong in any of the
+    // active hostess buckets. Route them to "other" so the host views ignore
+    // them just like cancelled/pending.
     return { bucket: 'other', lateMinutes: 0 }
   }
   // status === 'confirmed' from here
