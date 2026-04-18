@@ -35,6 +35,11 @@ export default function MarkedDashboard() {
   // Arrived reservations can still be assigned a table here (the hostess
   // sometimes taps "הגיע" before deciding where to seat them).
   const [pickerFor, setPickerFor] = useState<Reservation | null>(null)
+  // Only one row expanded at a time (consistent with /host). Marked rows
+  // don't transition back to confirmed via this page's buttons except via
+  // the undo-to-confirmed flow — that takes them out of the list entirely
+  // so no special auto-collapse effect is needed here.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   async function load() {
     try {
@@ -184,17 +189,43 @@ export default function MarkedDashboard() {
         ) : (
           <>
             <div className="space-y-2">
-              {marked.map(r => (
-                <ReservationRow
-                  key={r.id}
-                  reservation={r}
-                  pending={pendingAction === r.id}
-                  onArrived={() => setStatus(r.id, 'arrived')}
-                  onNoShow={() => setStatus(r.id, 'no_show')}
-                  onUndo={() => setStatus(r.id, 'confirmed')}
-                  onAssign={() => setPickerFor(r)}
-                />
-              ))}
+              {marked.map((r, idx) => {
+                const prev = idx > 0 ? marked[idx - 1] : null
+                const showHeader = !prev || prev.time !== r.time
+                let sameTimeCount = 0
+                if (showHeader) {
+                  for (let j = idx; j < marked.length; j++) {
+                    if (marked[j].time === r.time) sameTimeCount++
+                    else break
+                  }
+                }
+                return (
+                  <div key={r.id} className="space-y-2">
+                    {showHeader && (
+                      <div className={`flex items-center gap-2 ${idx === 0 ? '' : 'pt-2'}`}>
+                        <span className="text-xs font-black text-cayo-burgundy/60" dir="ltr">
+                          {r.time}
+                        </span>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/30">·</span>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/40">
+                          {sameTimeCount} {sameTimeCount === 1 ? 'הזמנה' : 'הזמנות'}
+                        </span>
+                        <span className="flex-1 border-t border-cayo-burgundy/10 ms-1" />
+                      </div>
+                    )}
+                    <ReservationRow
+                      reservation={r}
+                      pending={pendingAction === r.id}
+                      onArrived={() => setStatus(r.id, 'arrived')}
+                      onNoShow={() => setStatus(r.id, 'no_show')}
+                      onUndo={() => setStatus(r.id, 'confirmed')}
+                      onAssign={() => setPickerFor(r)}
+                      isExpanded={expandedId === r.id}
+                      onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    />
+                  </div>
+                )
+              })}
             </div>
             <p className="text-[11px] text-cayo-burgundy/40 text-center mt-3 font-bold">
               הקישי על הזמנה ואז &quot;ביטול סימון&quot; כדי להחזיר אותה לרשימה הראשית

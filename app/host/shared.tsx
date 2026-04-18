@@ -286,6 +286,8 @@ export function ReservationRow({
   onUndo,
   onAssign,
   onQuickAssign,
+  isExpanded,
+  onToggleExpand,
 }: {
   reservation: Enriched
   pending: boolean
@@ -298,6 +300,12 @@ export function ReservationRow({
   // this with the recommended table's id. A small secondary button
   // beside it opens the full picker via `onAssign` for overrides.
   onQuickAssign?: (tableId: string) => void
+  // Controlled expand — parent tracks "which row is open" so that
+  // expanding one row auto-collapses any previously open sibling.
+  // The parent is also responsible for clearing this when the row's
+  // status transitions to arrived/no_show.
+  isExpanded: boolean
+  onToggleExpand: () => void
 }) {
   const isLate = r.bucket === 'late'
   const isArrived = r.status === 'arrived'
@@ -305,7 +313,6 @@ export function ReservationRow({
   const isSoon = r.bucket === 'soon'
   const isDone = isArrived || isNoShow
 
-  const [expanded, setExpanded] = useState(false)
   const [offset, setOffset] = useState(0)
   const [hasTransition, setHasTransition] = useState(true)
 
@@ -323,7 +330,8 @@ export function ReservationRow({
     if (isDone) {
       setHasTransition(true)
       setOffset(0)
-      setExpanded(false)
+      // Expanded collapse is owned by the parent now; it watches for
+      // status transitions and nulls expandedId when this row is done.
     }
   }, [isDone])
 
@@ -382,7 +390,7 @@ export function ReservationRow({
       setOffset(0)
       return
     }
-    setExpanded(e => !e)
+    onToggleExpand()
   }
 
   function triggerArrived(e: React.MouseEvent) {
@@ -575,11 +583,11 @@ export function ReservationRow({
             className="text-cayo-burgundy/40 text-xs font-black px-1"
             aria-hidden="true"
           >
-            {expanded ? '▲' : '▼'}
+            {isExpanded ? '▲' : '▼'}
           </span>
         </div>
 
-        {expanded && (
+        {isExpanded && (
           <div className="px-4 pb-3 pt-1 border-t border-cayo-burgundy/10 space-y-2">
             {canAssign && showQuickAssign && r.recommendedTable && (
               // Split pill: big one-tap action on the right (primary CTA)

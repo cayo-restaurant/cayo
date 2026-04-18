@@ -56,6 +56,10 @@ export default function HostDashboard() {
   // once we pass it down as a prop (saves a second round-trip when it
   // opens). Tables change rarely enough that a 60s poll isn't worth it.
   const [tables, setTables] = useState<TableLite[]>([])
+  // Only one row is expanded at a time — auto-collapse siblings so the
+  // hostess always has a short, scannable list. Rows that transition to
+  // arrived/no_show are auto-closed via the effect below.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   async function load() {
     try {
@@ -221,6 +225,17 @@ export default function HostDashboard() {
 
   const enriched: Enriched[] = useMemo(() => enrich(items, now, tables), [items, now, tables])
 
+  // Auto-collapse the expanded row once it transitions to arrived/no_show
+  // (previously handled inside ReservationRow itself; now that expand
+  // state lives here, the parent owns the rule).
+  useEffect(() => {
+    if (!expandedId) return
+    const row = items.find(r => r.id === expandedId)
+    if (!row || row.status === 'arrived' || row.status === 'no_show') {
+      setExpandedId(null)
+    }
+  }, [items, expandedId])
+
   const lateItems = enriched.filter(r => r.bucket === 'late')
   const soonItems = enriched.filter(r => r.bucket === 'soon')
   const upcomingItems = enriched.filter(r => r.bucket === 'upcoming')
@@ -349,18 +364,48 @@ export default function HostDashboard() {
         ) : (
           <>
             <div className="space-y-2">
-              {activeList.map(r => (
-                <ReservationRow
-                  key={r.id}
-                  reservation={r}
-                  pending={pendingAction === r.id}
-                  onArrived={() => setStatus(r.id, 'arrived')}
-                  onNoShow={() => setStatus(r.id, 'no_show')}
-                  onUndo={() => setStatus(r.id, 'confirmed')}
-                  onAssign={() => setPickerFor(r)}
-                  onQuickAssign={(tableId) => quickAssign(r.id, tableId)}
-                />
-              ))}
+              {activeList.map((r, idx) => {
+                // Time section header — emitted whenever the time slot
+                // changes. Makes the list scannable at a glance during a
+                // busy service: the hostess's eye locks onto "20:30" and
+                // sees the chunk of guests arriving at that slot.
+                const prev = idx > 0 ? activeList[idx - 1] : null
+                const showHeader = !prev || prev.time !== r.time
+                let sameTimeCount = 0
+                if (showHeader) {
+                  for (let j = idx; j < activeList.length; j++) {
+                    if (activeList[j].time === r.time) sameTimeCount++
+                    else break
+                  }
+                }
+                return (
+                  <div key={r.id} className="space-y-2">
+                    {showHeader && (
+                      <div className={`flex items-center gap-2 ${idx === 0 ? '' : 'pt-2'}`}>
+                        <span className="text-xs font-black text-cayo-burgundy/60" dir="ltr">
+                          {r.time}
+                        </span>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/30">·</span>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/40">
+                          {sameTimeCount} {sameTimeCount === 1 ? 'הזמנה' : 'הזמנות'}
+                        </span>
+                        <span className="flex-1 border-t border-cayo-burgundy/10 ms-1" />
+                      </div>
+                    )}
+                    <ReservationRow
+                      reservation={r}
+                      pending={pendingAction === r.id}
+                      onArrived={() => setStatus(r.id, 'arrived')}
+                      onNoShow={() => setStatus(r.id, 'no_show')}
+                      onUndo={() => setStatus(r.id, 'confirmed')}
+                      onAssign={() => setPickerFor(r)}
+                      onQuickAssign={(tableId) => quickAssign(r.id, tableId)}
+                      isExpanded={expandedId === r.id}
+                      onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    />
+                  </div>
+                )
+              })}
             </div>
             <p className="text-[11px] text-cayo-burgundy/40 text-center mt-3 font-bold">
               החליקי הזמנה ימינה לסימון מהיר · הקישי להצגת פרטים
