@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAdmin } from '@/lib/admin-auth'
+import { isAdminRequest } from '@/lib/admin-auth'
+import { isHostRequest } from '@/lib/host-auth'
+import { shiftDayLocal } from '@/lib/shift-day'
 import { getReservation } from '@/lib/reservations-store'
 import {
   setAssignments,
@@ -21,7 +23,12 @@ import {
 // Response:
 //   { success: true, tables: AssignedTable[] }
 //
-// Auth: admin (hostess on /admin) only.
+// Auth:
+//   - admin (Google OAuth) — full access to any reservation
+//   - host (PIN cookie)    — only the current shift day, matching the host
+//                            GET scope. Keeps the PIN from being able to
+//                            retroactively touch yesterday or pre-stage
+//                            tomorrow.
 //
 // Capacity: Assignment is intentionally decoupled from the availability
 // math in lib/capacity.ts — availability is still aggregate-pool based,
@@ -33,12 +40,49 @@ const postSchema = z.object({
   primaryTableId: z.string().uuid().nullable(),
 })
 
+// Shared auth + reservation gate. Returns either an error NextResponse to
+// short-circuit the handler, or the loaded reservation so downstream code
+// doesn't re-fetch it.
+async function authorizeReservationMutation(reservationId: string) {
+  const admin = await isAdminRequest()
+  const host = !admin && isHostRequest()
+
+  if (!admin && !host) {
+    return {
+      error: NextResponse.json({ error: 'לא מורשה' }, { status: 401 }),
+      reservation: null,
+    }
+  }
+
+  const reservation = await getReservation(reservationId)
+  if (!reservation) {
+    return {
+      error: NextResponse.json({ error: 'הזמנה לא נמצאה' }, { status: 404 }),
+      reservation: null,
+    }
+  }
+
+  // Host scope: only today's shift day. The hostess shouldn't be able to
+  // reach yesterday's closed service or pre-stage next week from the PIN.
+  if (host && reservation.date !== shiftDayLocal()) {
+    return {
+      error: NextResponse.json(
+        { error: 'שיוך שולחן ממצב משמרת זמין רק להזמנות של היום' },
+        { status: 403 },
+      ),
+      reservation: null,
+    }
+  }
+
+  return { error: null, reservation }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const unauthorized = await requireAdmin()
-  if (unauthorized) return unauthorized
+  const gate = await authorizeReservationMutation(params.id)
+  if (gate.error) return gate.error
 
   let body: unknown
   try {
@@ -68,12 +112,6 @@ export async function POST(
         { status: 400 }
       )
     }
-  }
-
-  // Reservation must exist
-  const reservation = await getReservation(params.id)
-  if (!reservation) {
-    return NextResponse.json({ error: 'הזמנה לא נמצאה' }, { status: 404 })
   }
 
   // Validate every table id exists and is active
@@ -109,13 +147,8 @@ export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const unauthorized = await requireAdmin()
-  if (unauthorized) return unauthorized
-
-  const reservation = await getReservation(params.id)
-  if (!reservation) {
-    return NextResponse.json({ error: 'הזמנה לא נמצאה' }, { status: 404 })
-  }
+  const gate = await authorizeReservationMutation(params.id)
+  if (gate.error) return gate.error
 
   try {
     await clearAssignments(params.id)

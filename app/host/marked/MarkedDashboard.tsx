@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import cayoLogo from '../../../cayo_brand_page_005.png'
 import {
+  AssignedTable,
   Enriched,
   HEBREW_DAYS,
   HEBREW_MONTHS,
@@ -21,6 +22,7 @@ import {
   shiftAdjustedDate,
 } from '../shared'
 import { UndoToast, UndoToastState } from '../../../components/UndoToast'
+import TablePickerModal from '../../admin/components/TablePickerModal'
 
 export default function MarkedDashboard() {
   const router = useRouter()
@@ -30,6 +32,9 @@ export default function MarkedDashboard() {
   const [now, setNow] = useState<number>(() => Date.now())
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null)
+  // Arrived reservations can still be assigned a table here (the hostess
+  // sometimes taps "הגיע" before deciding where to seat them).
+  const [pickerFor, setPickerFor] = useState<Reservation | null>(null)
 
   async function load() {
     try {
@@ -58,10 +63,14 @@ export default function MarkedDashboard() {
 
   useEffect(() => {
     load()
-    const id = setInterval(load, 60_000)
+    const id = setInterval(() => {
+      // Skip refresh while the picker is open — same reasoning as HostDashboard.
+      if (pickerFor) return
+      load()
+    }, 60_000)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [pickerFor])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000)
@@ -183,6 +192,7 @@ export default function MarkedDashboard() {
                   onArrived={() => setStatus(r.id, 'arrived')}
                   onNoShow={() => setStatus(r.id, 'no_show')}
                   onUndo={() => setStatus(r.id, 'confirmed')}
+                  onAssign={() => setPickerFor(r)}
                 />
               ))}
             </div>
@@ -193,6 +203,20 @@ export default function MarkedDashboard() {
         )}
       </main>
       <UndoToast state={undoToast} onClose={() => setUndoToast(null)} />
+      {pickerFor && (
+        <TablePickerModal
+          open={true}
+          onClose={() => setPickerFor(null)}
+          reservation={pickerFor}
+          allReservations={items}
+          onSaved={(tables: AssignedTable[]) => {
+            setItems(prev =>
+              prev.map(it => (it.id === pickerFor.id ? { ...it, tables } : it)),
+            )
+            setPickerFor(null)
+          }}
+        />
+      )}
     </div>
   )
 }

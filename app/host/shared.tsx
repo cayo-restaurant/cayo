@@ -8,9 +8,9 @@ import { useEffect, useRef, useState } from 'react'
 export type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 export type Area = 'bar' | 'table'
 
-// Minimal shape — the host surfaces don't currently act on `tables`, but we
-// accept the field so the API response shape matches cleanly. The physical
-// table picker is admin-only in Phase 1.
+// Host surfaces now expose the assignment picker inside the expanded drawer
+// (Phase 1.5). The shape mirrors what the admin card consumes so the same
+// TablePickerModal can be reused. See ReservationRow's `onAssign` prop.
 export interface AssignedTable {
   id: string
   tableNumber: number
@@ -172,18 +172,27 @@ export function enrich(items: Reservation[], now: number): Enriched[] {
 
 // Compact list row. Tap to expand (shows phone + notes). Swipe right to
 // reveal the two primary actions (arrived / no-show).
+//
+// `onAssign` is optional — when supplied, the expanded drawer renders an
+// assignment pill that opens the TablePickerModal. The pill is hidden on
+// reservations that are no_show / cancelled / completed (where a seating
+// decision no longer makes sense). We intentionally keep the pill inside
+// the expanded drawer (not the compact header) so the shift view stays
+// glanceable and dense.
 export function ReservationRow({
   reservation: r,
   pending,
   onArrived,
   onNoShow,
   onUndo,
+  onAssign,
 }: {
   reservation: Enriched
   pending: boolean
   onArrived: () => void
   onNoShow: () => void
   onUndo: () => void
+  onAssign?: () => void
 }) {
   const isLate = r.bucket === 'late'
   const isArrived = r.status === 'arrived'
@@ -285,6 +294,18 @@ export function ReservationRow({
     e.stopPropagation()
     onUndo()
   }
+  function triggerAssign(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (onAssign) onAssign()
+  }
+
+  // The assignment pill is only meaningful while a seating decision is
+  // live — confirmed (upcoming/soon/late) or arrived. Once the guest is
+  // flagged no_show / cancelled / completed the pill disappears.
+  const canAssign = Boolean(onAssign) && (r.status === 'confirmed' || r.status === 'arrived')
+  const primaryTable =
+    r.tables.find(t => t.isPrimary) ?? (r.tables.length > 0 ? r.tables[0] : null)
+  const extraTablesCount = r.tables.length > 1 ? r.tables.length - 1 : 0
 
   const isVeryLate = isLate && r.lateMinutes >= 30
 
@@ -416,9 +437,43 @@ export function ReservationRow({
         </div>
 
         {expanded && (
-          <div className="px-4 pb-3 pt-1 border-t border-cayo-burgundy/10">
+          <div className="px-4 pb-3 pt-1 border-t border-cayo-burgundy/10 space-y-2">
+            {canAssign && (
+              <button
+                onClick={triggerAssign}
+                disabled={pending}
+                className={`w-full h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 ${
+                  primaryTable
+                    ? 'bg-cayo-burgundy/10 text-cayo-burgundy border-2 border-cayo-burgundy/20'
+                    : 'bg-cayo-orange/15 text-cayo-orange border-2 border-cayo-orange/30'
+                }`}
+                aria-label={primaryTable ? 'שינוי שיוך שולחן' : 'שיוך שולחן'}
+              >
+                {primaryTable ? (
+                  <>
+                    <span>🪑</span>
+                    <span>
+                      שולחן {primaryTable.tableNumber}
+                      {extraTablesCount > 0 && (
+                        <span className="font-bold opacity-70"> +{extraTablesCount}</span>
+                      )}
+                    </span>
+                    <span className="opacity-50">·</span>
+                    <span className="text-xs opacity-80">עריכה</span>
+                  </>
+                ) : (
+                  <>
+                    <span>⚠</span>
+                    <span>ללא שולחן</span>
+                    <span className="opacity-50">·</span>
+                    <span className="text-xs opacity-80">שייך</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {(r.phone || r.notes) ? (
-              <div className="space-y-2">
+              <>
                 {r.phone && (
                   <a
                     href={`tel:${r.phone}`}
@@ -448,18 +503,22 @@ export function ReservationRow({
                     💬 {r.notes}
                   </p>
                 )}
-              </div>
+              </>
             ) : (
-              <p className="text-xs text-cayo-burgundy/45 text-center py-1.5 font-bold">
-                אין פרטים נוספים
-              </p>
+              // Hide the "no extra details" fallback when the assignment
+              // pill is visible — the drawer isn't empty anymore.
+              !canAssign && (
+                <p className="text-xs text-cayo-burgundy/45 text-center py-1.5 font-bold">
+                  אין פרטים נוספים
+                </p>
+              )
             )}
 
             {isDone && (
               <button
                 onClick={triggerUndo}
                 disabled={pending}
-                className="w-full h-10 mt-2 rounded-xl border-2 border-cayo-burgundy/20 text-cayo-burgundy/70 font-bold text-xs hover:border-cayo-burgundy/50 disabled:opacity-50"
+                className="w-full h-10 rounded-xl border-2 border-cayo-burgundy/20 text-cayo-burgundy/70 font-bold text-xs hover:border-cayo-burgundy/50 disabled:opacity-50"
               >
                 ↶ ביטול סימון
               </button>
