@@ -21,6 +21,20 @@ export interface AssignedTable {
   isPrimary: boolean
 }
 
+// Raw shape returned by GET /api/admin/map/tables. We mirror it exactly
+// (snake_case, matching the DB column names) to avoid a translation layer
+// inside the recommendation engine. ReservationRow only displays
+// `table_number`, and the API contract we already ship in
+// POST /reservations/[id]/tables only needs `id`.
+export interface TableLite {
+  id: string
+  table_number: number
+  label: string | null
+  area: Area
+  capacity_min: number
+  capacity_max: number
+}
+
 export interface Reservation {
   id: string
   name: string
@@ -136,6 +150,80 @@ export interface Enriched extends Reservation {
   minutesFromNow: number
   lateMinutes: number
   bucket: Bucket
+  // Null when no single active table fits this party, or when every
+  // fitting table has an overlapping reservation in its 2h window, or
+  // when the reservation already has an assignment / isn't in a
+  // seat-able state. Powers the one-tap "שבצי שולחן N" shortcut on the
+  // host pill.
+  recommendedTable: TableLite | null
+}
+
+// Shift-long seating window — if two reservations' start times are within
+// this many minutes of each other, they're considered to overlap on the
+// same table. Same constant the TablePickerModal uses for its conflict
+// hint; kept in sync by being declared in one place.
+const RESERVATION_WINDOW_MIN = 120
+
+const OCCUPYING_STATUSES = new Set<Status>(['pending', 'confirmed', 'arrived'])
+
+function minutesFromClockTime(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number)
+  return h * 60 + m
+}
+
+function startTimesOverlap(aTime: string, bTime: string): boolean {
+  return Math.abs(minutesFromClockTime(aTime) - minutesFromClockTime(bTime)) < RESERVATION_WINDOW_MIN
+}
+
+// True if any OTHER occupying reservation on the same date holds this
+// table within the 2h overlap window. Used by the recommendation engine
+// to skip tables that would create a double-booking.
+function tableIsConflicted(
+  tableId: string,
+  target: Reservation,
+  all: Reservation[],
+): boolean {
+  for (const r of all) {
+    if (r.id === target.id) continue
+    if (r.date !== target.date) continue
+    if (!OCCUPYING_STATUSES.has(r.status)) continue
+    if (!r.tables.some(t => t.id === tableId)) continue
+    if (!startTimesOverlap(r.time, target.time)) continue
+    return true
+  }
+  return false
+}
+
+// Which table should the "שבצי שולחן N" shortcut assign?
+//   - Only for confirmed reservations with no existing assignment.
+//   - Candidates = active tables whose max capacity fits the party.
+//   - Skip any candidate already held by an overlapping reservation.
+//   - Among survivors, prefer the SMALLEST capacity_max (least wasted
+//     seats). Ties broken by lowest table_number for stability — the
+//     same reservation loaded twice should never flip its recommendation.
+//   - Returns null when nothing fits. The caller falls back to the
+//     classic "⚠ ללא שולחן · שייך" orange pill so the hostess can build
+//     a combo manually.
+export function recommendedTable(
+  reservation: Reservation,
+  allTables: TableLite[],
+  allReservations: Reservation[],
+): TableLite | null {
+  if (reservation.status !== 'confirmed') return null
+  if (reservation.tables.length > 0) return null
+
+  const fitting = allTables
+    .filter(t => t.capacity_max >= reservation.guests)
+    .filter(t => !tableIsConflicted(t.id, reservation, allReservations))
+
+  if (fitting.length === 0) return null
+
+  fitting.sort((a, b) => {
+    if (a.capacity_max !== b.capacity_max) return a.capacity_max - b.capacity_max
+    return a.table_number - b.table_number
+  })
+
+  return fitting[0]
 }
 
 export function bucketOf(r: Reservation, now: number): { bucket: Bucket; lateMinutes: number } {
@@ -156,7 +244,16 @@ export function bucketOf(r: Reservation, now: number): { bucket: Bucket; lateMin
   return { bucket: 'upcoming', lateMinutes: 0 }
 }
 
-export function enrich(items: Reservation[], now: number): Enriched[] {
+// `allTables` is optional so that consumers that don't need
+// recommendations (MarkedDashboard, early-load states before the tables
+// fetch returns) don't have to thread an empty array through. When it's
+// missing or empty, `recommendedTable` for every row resolves to null —
+// the classic orange "שייך" pill renders instead.
+export function enrich(
+  items: Reservation[],
+  now: number,
+  allTables: TableLite[] = [],
+): Enriched[] {
   return items.map(r => {
     const scheduled = timeOn(r.date, r.time)
     const { bucket, lateMinutes } = bucketOf(r, now)
@@ -166,6 +263,8 @@ export function enrich(items: Reservation[], now: number): Enriched[] {
       minutesFromNow: minutesDiff(scheduled.getTime(), now),
       lateMinutes,
       bucket,
+      recommendedTable:
+        allTables.length > 0 ? recommendedTable(r, allTables, items) : null,
     }
   })
 }
@@ -186,6 +285,7 @@ export function ReservationRow({
   onNoShow,
   onUndo,
   onAssign,
+  onQuickAssign,
 }: {
   reservation: Enriched
   pending: boolean
@@ -193,6 +293,11 @@ export function ReservationRow({
   onNoShow: () => void
   onUndo: () => void
   onAssign?: () => void
+  // Optional: when supplied AND the reservation has a recommendation,
+  // the drawer shows a big one-tap "שבצי שולחן N" button that calls
+  // this with the recommended table's id. A small secondary button
+  // beside it opens the full picker via `onAssign` for overrides.
+  onQuickAssign?: (tableId: string) => void
 }) {
   const isLate = r.bucket === 'late'
   const isArrived = r.status === 'arrived'
@@ -298,6 +403,10 @@ export function ReservationRow({
     e.stopPropagation()
     if (onAssign) onAssign()
   }
+  function triggerQuickAssign(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (onQuickAssign && r.recommendedTable) onQuickAssign(r.recommendedTable.id)
+  }
 
   // The assignment pill is only meaningful while a seating decision is
   // live — confirmed (upcoming/soon/late) or arrived. Once the guest is
@@ -306,6 +415,12 @@ export function ReservationRow({
   const primaryTable =
     r.tables.find(t => t.isPrimary) ?? (r.tables.length > 0 ? r.tables[0] : null)
   const extraTablesCount = r.tables.length > 1 ? r.tables.length - 1 : 0
+  // "Smart shortcut" pill: we have a recommendation AND the parent wired
+  // a quick-assign handler AND the row is still unassigned. Otherwise
+  // fall back to the classic orange "שייך" pill that opens the picker.
+  const showQuickAssign = Boolean(
+    canAssign && !primaryTable && r.recommendedTable && onQuickAssign,
+  )
 
   const isVeryLate = isLate && r.lateMinutes >= 30
 
@@ -438,7 +553,33 @@ export function ReservationRow({
 
         {expanded && (
           <div className="px-4 pb-3 pt-1 border-t border-cayo-burgundy/10 space-y-2">
-            {canAssign && (
+            {canAssign && showQuickAssign && r.recommendedTable && (
+              // Split pill: big one-tap action on the right (primary CTA)
+              // and a small "אחר" escape hatch that opens the full picker
+              // when the suggestion isn't what the hostess wants. The
+              // split preserves discoverability without demanding a
+              // long-press gesture that mobile users rarely find.
+              <div className="flex gap-1.5">
+                <button
+                  onClick={triggerQuickAssign}
+                  disabled={pending}
+                  className="flex-1 h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy text-white border-2 border-cayo-burgundy"
+                  aria-label={`שבצי שולחן ${r.recommendedTable.table_number}`}
+                >
+                  <span>🪑</span>
+                  <span>שבצי שולחן {r.recommendedTable.table_number}</span>
+                </button>
+                <button
+                  onClick={triggerAssign}
+                  disabled={pending}
+                  className="w-16 h-11 rounded-xl font-black text-sm flex items-center justify-center active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy/5 text-cayo-burgundy/80 border-2 border-cayo-burgundy/20"
+                  aria-label="בחרי שולחן אחר או שילוב"
+                >
+                  אחר
+                </button>
+              </div>
+            )}
+            {canAssign && !showQuickAssign && (
               <button
                 onClick={triggerAssign}
                 disabled={pending}

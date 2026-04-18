@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAdmin } from '@/lib/admin-auth'
+import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
+import { isHostRequest } from '@/lib/host-auth'
 import { getServiceClient } from '@/lib/supabase'
 
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
@@ -32,11 +33,20 @@ const createSchema = z
   })
 
 export async function GET(req: NextRequest) {
-  const denied = await requireAdmin()
-  if (denied) return denied
+  // Read-only list is needed by both surfaces:
+  //   /admin (map editor) — full admin power
+  //   /host  (picker + recommendation engine) — host PIN is enough
+  // Writes (POST below) stay admin-only.
+  const admin = await isAdminRequest()
+  const host = !admin && isHostRequest()
+  if (!admin && !host) {
+    return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
+  }
 
+  // includeInactive is an admin-only knob (it exposes deactivated tables
+  // in the admin editor). Hosts only ever see active tables.
   const includeInactive =
-    req.nextUrl.searchParams.get('includeInactive') === 'true'
+    admin && req.nextUrl.searchParams.get('includeInactive') === 'true'
 
   const sb = getServiceClient()
   let query = sb.from('restaurant_tables').select('*').order('table_number')

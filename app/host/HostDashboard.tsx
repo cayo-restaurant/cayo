@@ -28,6 +28,7 @@ import {
   Reservation,
   ReservationRow,
   Status,
+  TableLite,
   computeShiftDateStr,
   enrich,
   shiftAdjustedDate,
@@ -50,6 +51,11 @@ export default function HostDashboard() {
   // full row (not just the id) so the modal can keep rendering its header and
   // currently-assigned tables even if `items` is re-fetched in the background.
   const [pickerFor, setPickerFor] = useState<Reservation | null>(null)
+  // All active restaurant tables — fetched once on mount. Drives the
+  // smart-pill recommendation engine and will be reused by the picker
+  // once we pass it down as a prop (saves a second round-trip when it
+  // opens). Tables change rarely enough that a 60s poll isn't worth it.
+  const [tables, setTables] = useState<TableLite[]>([])
 
   async function load() {
     try {
@@ -98,6 +104,80 @@ export default function HostDashboard() {
     return () => clearInterval(id)
   }, [])
 
+  // Tables fetch — one-shot on mount. If this 401s or otherwise fails,
+  // the smart pill simply degrades to the classic "שייך" flow; nothing
+  // else on the page depends on it.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/map/tables', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: TableLite[]) => {
+        if (!cancelled) setTables(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        // no-op — the pill falls back to the picker flow
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // One-tap "שבצי שולחן N". Optimistically builds an assignment from the
+  // TableLite we already have in memory so the pill flips instantly to
+  // the burgundy "🪑 שולחן N · עריכה" state. An undo toast reverts via
+  // DELETE if the hostess taps it within 3s. On network failure we
+  // reload to resync.
+  async function quickAssign(reservationId: string, tableId: string) {
+    const prev = items.find(r => r.id === reservationId)
+    const table = tables.find(t => t.id === tableId)
+    if (!prev || !table) return
+
+    setPendingAction(reservationId)
+    const optimistic: AssignedTable = {
+      id: table.id,
+      tableNumber: table.table_number,
+      label: table.label,
+      area: table.area,
+      capacityMin: table.capacity_min,
+      capacityMax: table.capacity_max,
+      isPrimary: true,
+    }
+    setItems(p => p.map(r => (r.id === reservationId ? { ...r, tables: [optimistic] } : r)))
+    try {
+      const res = await fetch(`/api/reservations/${reservationId}/tables`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableIds: [tableId], primaryTableId: tableId }),
+      })
+      if (!res.ok) {
+        await load()
+        return
+      }
+      const data = await res.json()
+      setItems(p =>
+        p.map(r => (r.id === reservationId ? { ...r, tables: data.tables || [] } : r)),
+      )
+      setUndoToast({
+        message: `שובצה לשולחן ${table.table_number} – ${prev.name}`,
+        onUndo: async () => {
+          setUndoToast(null)
+          // Optimistic revert; server call is fire-and-forget. If it
+          // fails the next load() tick will resync.
+          setItems(p => p.map(r => (r.id === reservationId ? { ...r, tables: [] } : r)))
+          try {
+            await fetch(`/api/reservations/${reservationId}/tables`, { method: 'DELETE' })
+          } catch {
+            /* swallowed — next poll corrects state */
+          }
+        },
+      })
+    } catch {
+      await load()
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
   async function setStatus(id: string, status: Status) {
     // Capture the previous status BEFORE the optimistic mutation so the undo
     // toast (for destructive marks) can revert exactly to where we were.
@@ -139,7 +219,7 @@ export default function HostDashboard() {
     router.replace('/host/login')
   }
 
-  const enriched: Enriched[] = useMemo(() => enrich(items, now), [items, now])
+  const enriched: Enriched[] = useMemo(() => enrich(items, now, tables), [items, now, tables])
 
   const lateItems = enriched.filter(r => r.bucket === 'late')
   const soonItems = enriched.filter(r => r.bucket === 'soon')
@@ -262,6 +342,7 @@ export default function HostDashboard() {
                   onNoShow={() => setStatus(r.id, 'no_show')}
                   onUndo={() => setStatus(r.id, 'confirmed')}
                   onAssign={() => setPickerFor(r)}
+                  onQuickAssign={(tableId) => quickAssign(r.id, tableId)}
                 />
               ))}
             </div>

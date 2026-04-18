@@ -39,6 +39,7 @@ interface ReservationLite {
   time: string
   date: string
   status: string
+  guests: number
   tables: AssignedTable[]
 }
 
@@ -118,11 +119,17 @@ export default function TablePickerModal({
   // reservation card). We build the initial list by putting the current
   // primary first, then the rest in whatever order the server returned.
   const [selectedIds, setSelectedIds] = useState<string[]>(() => seedSelection(reservation.tables))
+  // Default view hides tables too small for the party, so the hostess sees
+  // only fitting options without scanning the full map. The toggle chip
+  // below flips this off when she wants to combine small tables manually.
+  // Auto-opens if filtering would leave her with zero options.
+  const [showSmall, setShowSmall] = useState(false)
 
   // Re-seed selection when reservation changes (e.g. modal re-opened for another row)
   useEffect(() => {
     if (open) {
       setSelectedIds(seedSelection(reservation.tables))
+      setShowSmall(false)
       setError('')
     }
   }, [open, reservation.id, reservation.tables])
@@ -212,8 +219,27 @@ export default function TablePickerModal({
     return { min, max }
   }, [selectedIds, tables])
 
-  const barTables = tables.filter(t => t.area === 'bar')
-  const areaTables = tables.filter(t => t.area === 'table')
+  // Fitting tables are those whose own capacity_max already covers the
+  // party. We always keep currently-selected tables visible even if they
+  // don't fit (so the hostess can see what she's about to deselect).
+  const fits = (t: TableLite) =>
+    t.capacity_max >= reservation.guests || selectedIds.includes(t.id)
+  const hiddenCount = tables.filter(t => !fits(t)).length
+  const visibleTables = showSmall ? tables : tables.filter(fits)
+  // If the default filter leaves nothing, expand automatically — never
+  // show an empty picker to the hostess.
+  useEffect(() => {
+    if (
+      !showSmall &&
+      !loading &&
+      tables.length > 0 &&
+      visibleTables.length === 0
+    ) {
+      setShowSmall(true)
+    }
+  }, [showSmall, loading, tables.length, visibleTables.length])
+  const barTables = visibleTables.filter(t => t.area === 'bar')
+  const areaTables = visibleTables.filter(t => t.area === 'table')
   const primaryId = selectedIds[0] ?? null
   const showPrimaryBadge = selectedIds.length >= 2 // no point showing "primary" when there's only one
   const renderRow = (t: TableLite) => {
@@ -279,7 +305,7 @@ export default function TablePickerModal({
           <div>
             <h2 className="text-lg font-black text-cayo-burgundy">שיוך שולחן</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {reservation.name} · {reservation.time} · {reservation.date}
+              {reservation.name} · {reservation.time} · {reservation.date} · {reservation.guests} סועדים
             </p>
           </div>
           <button
@@ -298,6 +324,21 @@ export default function TablePickerModal({
           )}
           {!loading && tables.length === 0 && !error && (
             <p className="text-center text-gray-500 text-sm py-6">אין שולחנות פעילים.</p>
+          )}
+          {!loading && hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowSmall(s => !s)}
+              className={`w-full text-xs font-bold rounded-xl py-2 px-3 border-2 transition-colors ${
+                showSmall
+                  ? 'border-cayo-burgundy/40 bg-cayo-burgundy/5 text-cayo-burgundy'
+                  : 'border-cayo-burgundy/15 bg-white text-cayo-burgundy/70 hover:border-cayo-burgundy/30'
+              }`}
+            >
+              {showSmall
+                ? `מציגה הכל · הסתירי שולחנות מתחת ל-${reservation.guests}`
+                : `הצגת שולחנות המתאימים ל-${reservation.guests} סועדים · הציגי גם קטנים (${hiddenCount})`}
+            </button>
           )}
           {!loading && areaTables.length > 0 && (
             <div>
