@@ -480,19 +480,19 @@ export function ReservationRow({
           <button
             onClick={triggerNoShow}
             disabled={pending}
-            className="flex-1 bg-cayo-burgundy text-white font-black text-sm flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
-            aria-label="סמני לא הגיע"
+            className="flex-1 bg-cayo-burgundy text-white font-black text-sm flex flex-col items-center justify-center gap-0.5 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/60"
+            aria-label={`סמני לא הגיע – ${r.name || 'ללא שם'} בשעה ${r.time}`}
           >
-            <span className="text-2xl leading-none">✗</span>
+            <span className="text-2xl leading-none" aria-hidden="true">✗</span>
             <span>לא הגיע</span>
           </button>
           <button
             onClick={triggerArrived}
             disabled={pending}
-            className="flex-1 bg-cayo-teal text-white font-black text-sm flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
-            aria-label="סמני הגיע"
+            className="flex-1 bg-cayo-tealDark text-white font-black text-sm flex flex-col items-center justify-center gap-0.5 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/60"
+            aria-label={`סמני הגיע – ${r.name || 'ללא שם'} בשעה ${r.time}`}
           >
-            <span className="text-2xl leading-none">✓</span>
+            <span className="text-2xl leading-none" aria-hidden="true">✓</span>
             <span>הגיע</span>
           </button>
         </div>
@@ -523,7 +523,7 @@ export function ReservationRow({
             <p className="text-base font-black text-cayo-burgundy truncate leading-tight">
               {r.name || '— ללא שם —'}
             </p>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-cayo-burgundy/65 mt-0.5 truncate">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-cayo-burgundy/80 mt-0.5 truncate">
               <span>
                 {r.guests} {r.guests === 1 ? 'סועד' : 'סועדים'}
               </span>
@@ -611,7 +611,7 @@ export function ReservationRow({
                       disabled={pending}
                       className={`flex-1 h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 text-white border-2 ${
                         combine
-                          ? 'bg-cayo-teal border-cayo-teal'
+                          ? 'bg-cayo-tealDark border-cayo-tealDark'
                           : 'bg-cayo-burgundy border-cayo-burgundy'
                       }`}
                       aria-label={
@@ -620,7 +620,7 @@ export function ReservationRow({
                           : `שבצי שולחן ${r.recommendedTable!.table_number}`
                       }
                     >
-                      <span>{combine ? '✓' : '🪑'}</span>
+                      <span aria-hidden="true">{combine ? '✓' : '🪑'}</span>
                       <span>
                         {combine
                           ? `הגיע · שולחן ${r.recommendedTable!.table_number}`

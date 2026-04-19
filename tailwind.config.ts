@@ -14,6 +14,7 @@ const config: Config = {
           cream: '#F0E0C7',
           orange: '#E35632',
           teal: '#00AD9E',
+          tealDark: '#008578',
           red: '#CB4747',
           // Keep old aliases for backward compat during migration
           copper: '#E35632',

@@ -41,6 +41,9 @@ export default function HostDashboard() {
   const [items, setItems] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // aria-live message announced to screen readers on any status flip.
+  // Mirrors what the sighted hostess sees in the optimistic list update.
+  const [announce, setAnnounce] = useState('')
   // `now` ticks every 30s so late minutes update without a manual reload
   const [now, setNow] = useState<number>(() => Date.now())
   // Track which card just had an action for a brief "tap feedback" flash
@@ -190,6 +193,15 @@ export default function HostDashboard() {
 
     setPendingAction(id)
     setItems(p => p.map(r => (r.id === id ? { ...r, status } : r)))
+    if (prev) {
+      const name = prev.name || 'הזמנה ללא שם'
+      const verb =
+        status === 'arrived' ? 'סומן/ה כהגיע/ה'
+        : status === 'no_show' ? 'סומן/ה כלא הגיע/ה'
+        : status === 'confirmed' ? 'שוחזר/ה לאישור'
+        : 'סטטוס עודכן'
+      setAnnounce(`${name} ${verb} בשעה ${prev.time}`)
+    }
     try {
       const res = await fetch(`/api/reservations/${id}`, {
         method: 'PATCH',
@@ -278,12 +290,12 @@ export default function HostDashboard() {
             </div>
             <div>
               <h1 className="text-lg font-black text-cayo-burgundy leading-tight">משמרת</h1>
-              <p className="text-xs text-cayo-burgundy/60 leading-tight">{todayLabel}</p>
+              <p className="text-xs text-cayo-burgundy/80 leading-tight">{todayLabel}</p>
             </div>
           </div>
           <button
             onClick={logout}
-            className="text-sm font-bold text-cayo-burgundy/70 hover:text-cayo-burgundy px-3 py-1.5"
+            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-sm font-bold text-cayo-burgundy hover:text-cayo-burgundy px-4 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60 focus-visible:ring-offset-2"
           >
             יציאה
           </button>
@@ -291,6 +303,9 @@ export default function HostDashboard() {
       </header>
 
       <main className="max-w-3xl mx-auto px-5 py-5">
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {announce}
+        </div>
         {/* Top row: single stat card + link to marked list */}
         <div className="mb-4 grid grid-cols-2 gap-2">
           <Stat
@@ -302,13 +317,13 @@ export default function HostDashboard() {
             href="/host/marked"
             className="bg-white border-2 border-cayo-burgundy/15 rounded-xl px-3 py-2.5 hover:border-cayo-burgundy/40 active:scale-[0.98] transition flex flex-col justify-center"
           >
-            <p className="text-[10px] font-bold text-cayo-burgundy/50 uppercase tracking-wider">
+            <p className="text-[10px] font-bold text-cayo-burgundy/75 uppercase tracking-wider">
               מסומנות
             </p>
             <p className="text-xl font-black mt-0.5 text-cayo-burgundy">
               {markedCount}
             </p>
-            <p className="text-[11px] font-bold text-cayo-burgundy/50 mt-0.5 leading-tight">
+            <p className="text-[11px] font-bold text-cayo-burgundy/75 mt-0.5 leading-tight">
               הצג רשימה ←
             </p>
           </Link>
@@ -322,7 +337,7 @@ export default function HostDashboard() {
         {lateItems.length > 0 && (
           <div className="mb-4 bg-cayo-red/10 border-2 border-cayo-red/40 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className="inline-block w-2 h-2 rounded-full bg-cayo-red animate-pulse" />
+              <span className="inline-block w-2 h-2 rounded-full bg-cayo-red animate-pulse" aria-hidden="true" />
               <p className="text-cayo-red font-black text-sm">
                 {lateItems.length === 1 ? 'הזמנה מאחרת' : `${lateItems.length} הזמנות מאחרות`}
               </p>
@@ -363,7 +378,7 @@ export default function HostDashboard() {
           </div>
         ) : (
           <>
-            <div className="space-y-2">
+            <ul className="space-y-2 list-none p-0">
               {activeList.map((r, idx) => {
                 // Time section header — emitted whenever the time slot
                 // changes. Makes the list scannable at a glance during a
@@ -379,17 +394,17 @@ export default function HostDashboard() {
                   }
                 }
                 return (
-                  <div key={r.id} className="space-y-2">
+                  <li key={r.id} className="space-y-2 list-none">
                     {showHeader && (
                       <div className={`flex items-center gap-2 ${idx === 0 ? '' : 'pt-2'}`}>
-                        <span className="text-xs font-black text-cayo-burgundy/60" dir="ltr">
+                        <h2 className="text-xs font-black text-cayo-burgundy/80 m-0" dir="ltr">
                           {r.time}
-                        </span>
-                        <span className="text-[11px] font-bold text-cayo-burgundy/30">·</span>
-                        <span className="text-[11px] font-bold text-cayo-burgundy/40">
+                        </h2>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/40" aria-hidden="true">·</span>
+                        <span className="text-[11px] font-bold text-cayo-burgundy/75">
                           {sameTimeCount} {sameTimeCount === 1 ? 'הזמנה' : 'הזמנות'}
                         </span>
-                        <span className="flex-1 border-t border-cayo-burgundy/10 ms-1" />
+                        <span className="flex-1 border-t border-cayo-burgundy/10 ms-1" aria-hidden="true" />
                       </div>
                     )}
                     <ReservationRow
@@ -403,11 +418,11 @@ export default function HostDashboard() {
                       isExpanded={expandedId === r.id}
                       onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
                     />
-                  </div>
+                  </li>
                 )
               })}
-            </div>
-            <p className="text-[11px] text-cayo-burgundy/40 text-center mt-3 font-bold">
+            </ul>
+            <p className="text-[11px] text-cayo-burgundy/75 text-center mt-3 font-bold">
               החליקי הזמנה ימינה לסימון מהיר · הקישי להצגת פרטים
             </p>
           </>
@@ -435,11 +450,11 @@ export default function HostDashboard() {
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="bg-white border-2 border-cayo-burgundy/15 rounded-xl px-3 py-2.5">
-      <p className="text-[10px] font-bold text-cayo-burgundy/50 uppercase tracking-wider">
+      <p className="text-[10px] font-bold text-cayo-burgundy/75 uppercase tracking-wider">
         {label}
       </p>
       <p className="text-xl font-black mt-0.5 text-cayo-burgundy">{value}</p>
-      <p className="text-[11px] font-bold text-cayo-burgundy/50 mt-0.5 leading-tight">
+      <p className="text-[11px] font-bold text-cayo-burgundy/75 mt-0.5 leading-tight">
         {sub}
       </p>
     </div>

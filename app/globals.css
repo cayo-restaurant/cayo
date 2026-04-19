@@ -14,6 +14,16 @@
   ::selection {
     @apply bg-cayo-teal/20 text-cayo-burgundy;
   }
+
+  /* A11y: a visible focus ring on every focusable element, unless a
+     component opts out with its own focus-visible:* utilities.
+     2px outline + 2px offset = 4px total — comfortably visible without
+     pushing layout. Burgundy on white = ~14:1 contrast. */
+  :focus-visible {
+    outline: 2px solid #4D1423;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 @layer components {
