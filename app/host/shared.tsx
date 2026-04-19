@@ -527,11 +527,11 @@ export function ReservationRow({
               <span>
                 {r.guests} {r.guests === 1 ? 'סועד' : 'סועדים'}
               </span>
-              <span className="opacity-40">·</span>
+              <span className="opacity-40" aria-hidden="true">·</span>
               <span>{AREA_LABEL[r.area]}</span>
               {isLate && (
                 <>
-                  <span className="opacity-40">·</span>
+                  <span className="opacity-40" aria-hidden="true">·</span>
                   <span className={`${isVeryLate ? 'text-cayo-red' : 'text-cayo-orange'} font-black`}>
                     איחור {r.lateMinutes} דק׳
                   </span>
@@ -539,7 +539,7 @@ export function ReservationRow({
               )}
               {isSoon && !isLate && r.minutesFromNow > 0 && (
                 <>
-                  <span className="opacity-40">·</span>
+                  <span className="opacity-40" aria-hidden="true">·</span>
                   <span className="text-cayo-orange">
                     בעוד {r.minutesFromNow} דק׳
                   </span>
@@ -547,13 +547,13 @@ export function ReservationRow({
               )}
               {isArrived && (
                 <>
-                  <span className="opacity-40">·</span>
+                  <span className="opacity-40" aria-hidden="true">·</span>
                   <span className="text-cayo-teal">הגיע/ה</span>
                 </>
               )}
               {isNoShow && (
                 <>
-                  <span className="opacity-40">·</span>
+                  <span className="opacity-40" aria-hidden="true">·</span>
                   <span className="text-black/60">לא הגיע/ה</span>
                 </>
               )}
