@@ -10,10 +10,9 @@ type Gender = 'male' | 'female' | 'other'
 interface Employee {
   id: string
   full_name: string
-  role: Role
-  // Extra roles this employee can be scheduled as (e.g. a bartender who
-  // sometimes covers waiter shifts). Display/color is still driven by `role`.
-  secondary_roles: Role[]
+  // Flat list of roles this employee can be scheduled as. No "primary".
+  // The role for each shift comes from the shift row itself.
+  roles: Role[]
   phone: string
   email: string
   gender: Gender | null
@@ -41,8 +40,7 @@ const GENDERS: Gender[] = ['male', 'female', 'other']
 
 const emptyForm = {
   full_name: '',
-  role: 'waiter' as Role,
-  secondary_roles: [] as Role[],
+  roles: ['waiter'] as Role[],
   phone: '',
   email: '',
   gender: '' as Gender | '',
@@ -81,8 +79,7 @@ export default function EmployeesPage() {
     setEditId(emp.id)
     setForm({
       full_name: emp.full_name,
-      role: emp.role,
-      secondary_roles: emp.secondary_roles || [],
+      roles: emp.roles && emp.roles.length > 0 ? emp.roles : ['waiter'],
       phone: emp.phone || '',
       email: emp.email || '',
       gender: emp.gender || '',
@@ -91,13 +88,14 @@ export default function EmployeesPage() {
     setShowModal(true)
   }
 
-  function toggleSecondary(role: Role) {
+  function toggleRole(role: Role) {
     setForm(f => {
-      // Can't pick primary as a secondary.
-      if (f.role === role) return f
-      return f.secondary_roles.includes(role)
-        ? { ...f, secondary_roles: f.secondary_roles.filter(r => r !== role) }
-        : { ...f, secondary_roles: [...f.secondary_roles, role] }
+      if (f.roles.includes(role)) {
+        // Don't allow unchecking the last role.
+        if (f.roles.length === 1) return f
+        return { ...f, roles: f.roles.filter(r => r !== role) }
+      }
+      return { ...f, roles: [...f.roles, role] }
     })
   }
 
@@ -222,14 +220,10 @@ export default function EmployeesPage() {
                     <td className="px-4 py-3 font-medium text-gray-900">{emp.full_name}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-1">
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-cayo-burgundy/10 text-cayo-burgundy">
-                          {ROLE_LABEL[emp.role]}
-                        </span>
-                        {(emp.secondary_roles || []).map(r => (
+                        {(emp.roles || []).map(r => (
                           <span
                             key={r}
-                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500"
-                            title="תפקיד משני"
+                            className="px-2 py-0.5 rounded-full text-xs font-bold bg-cayo-burgundy/10 text-cayo-burgundy"
                           >
                             {ROLE_LABEL[r]}
                           </span>
@@ -295,58 +289,19 @@ export default function EmployeesPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד ראשי *</label>
-                  <select
-                    value={form.role}
-                    onChange={e => {
-                      const next = e.target.value as Role
-                      // If the new primary was in secondary_roles, remove it
-                      // so we don't violate the "no duplicate" rule.
-                      setForm(f => ({
-                        ...f,
-                        role: next,
-                        secondary_roles: f.secondary_roles.filter(r => r !== next),
-                      }))
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                  >
-                    {ROLES.map(r => (
-                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">מין</label>
-                  <select
-                    value={form.gender}
-                    onChange={e => setForm(f => ({ ...f, gender: e.target.value as Gender | '' }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
-                  >
-                    <option value="">—</option>
-                    {GENDERS.map(g => (
-                      <option key={g} value={g}>{GENDER_LABEL[g]}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  תפקידים נוספים
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תפקידים *</label>
                 <p className="text-xs text-gray-400 mb-2">
-                  תפקידים שהעובד/ת יכול/ה למלא בנוסף. יופיעו גם ברשימה ב&quot;שעות עבודה&quot;.
+                  כל התפקידים שהעובד/ת יכול/ה למלא. יופיע ברשימה ב&quot;שעות עבודה&quot; בכל התפקידים שנבחרו.
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {ROLES.filter(r => r !== form.role).map(r => {
-                    const selected = form.secondary_roles.includes(r)
+                  {ROLES.map(r => {
+                    const selected = form.roles.includes(r)
                     return (
                       <button
                         key={r}
                         type="button"
-                        onClick={() => toggleSecondary(r)}
+                        onClick={() => toggleRole(r)}
                         className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
                           selected
                             ? 'bg-cayo-burgundy/10 border-cayo-burgundy/40 text-cayo-burgundy'
@@ -358,6 +313,20 @@ export default function EmployeesPage() {
                     )
                   })}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">מין</label>
+                <select
+                  value={form.gender}
+                  onChange={e => setForm(f => ({ ...f, gender: e.target.value as Gender | '' }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none"
+                >
+                  <option value="">—</option>
+                  {GENDERS.map(g => (
+                    <option key={g} value={g}>{GENDER_LABEL[g]}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

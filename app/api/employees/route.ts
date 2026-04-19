@@ -6,26 +6,21 @@ import { getServiceClient } from '@/lib/supabase'
 const ROLES = ['bartender', 'waiter', 'host', 'kitchen', 'dishwasher', 'manager'] as const
 const GENDERS = ['male', 'female', 'other'] as const
 
+// Employees now carry a flat list of roles they can be scheduled as —
+// no "primary" concept. The role each shift fills comes from the shift
+// row itself (shifts.role), not from the employee.
 const createSchema = z
   .object({
     full_name: z.string().min(2, 'נא להזין שם מלא'),
-    role: z.enum(ROLES),
-    // Additional roles the employee can fill in as (e.g. a bartender who also
-    // works waiter shifts). Primary `role` drives display/color/grouping;
-    // secondary_roles only expand eligibility in the /admin/hours slot picker.
-    secondary_roles: z.array(z.enum(ROLES)).default([]),
+    roles: z.array(z.enum(ROLES)).min(1, 'נא לבחור לפחות תפקיד אחד'),
     phone: z.string().optional().default(''),
     email: z.string().optional().default(''),
     gender: z.enum(GENDERS).optional(),
     hourly_rate: z.number().min(0).default(0),
   })
-  .refine(d => !d.secondary_roles.includes(d.role), {
-    message: 'התפקיד הראשי לא יכול להופיע גם כתפקיד משני',
-    path: ['secondary_roles'],
-  })
-  .refine(d => new Set(d.secondary_roles).size === d.secondary_roles.length, {
-    message: 'תפקיד משני כפול',
-    path: ['secondary_roles'],
+  .refine(d => new Set(d.roles).size === d.roles.length, {
+    message: 'תפקיד כפול',
+    path: ['roles'],
   })
 
 // GET /api/employees — list all employees

@@ -9,9 +9,8 @@ const GENDERS = ['male', 'female', 'other'] as const
 const updateSchema = z
   .object({
     full_name: z.string().min(2).optional(),
-    role: z.enum(ROLES).optional(),
-    // If provided, replaces the full list of secondary roles.
-    secondary_roles: z.array(z.enum(ROLES)).optional(),
+    // Replaces the full list of roles when provided. Must have >=1 entry.
+    roles: z.array(z.enum(ROLES)).min(1).optional(),
     phone: z.string().optional(),
     email: z.string().optional(),
     gender: z.enum(GENDERS).optional(),
@@ -19,20 +18,8 @@ const updateSchema = z
     active: z.boolean().optional(),
   })
   .refine(
-    d =>
-      !d.role ||
-      !d.secondary_roles ||
-      !d.secondary_roles.includes(d.role),
-    {
-      message: 'התפקיד הראשי לא יכול להופיע גם כתפקיד משני',
-      path: ['secondary_roles'],
-    }
-  )
-  .refine(
-    d =>
-      !d.secondary_roles ||
-      new Set(d.secondary_roles).size === d.secondary_roles.length,
-    { message: 'תפקיד משני כפול', path: ['secondary_roles'] }
+    d => !d.roles || new Set(d.roles).size === d.roles.length,
+    { message: 'תפקיד כפול', path: ['roles'] }
   )
 
 type Params = { params: Promise<{ id: string }> }

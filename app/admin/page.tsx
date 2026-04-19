@@ -386,7 +386,8 @@ interface TodayShift {
   start_time: string
   end_time: string
   break_minutes: number
-  employees: { full_name: string; role: string; hourly_rate: number } | null
+  role: string
+  employees: { full_name: string; hourly_rate: number } | null
 }
 
 const ROLE_LABEL_DASH: Record<string, string> = {
@@ -903,7 +904,7 @@ function Dashboard() {
     // Group shifts by role
     const byRole: Record<string, string[]> = {}
     for (const s of todayShifts) {
-      const role = s.employees?.role || 'unknown'
+      const role = s.role || 'unknown'
       if (!byRole[role]) byRole[role] = []
       byRole[role].push(s.employees?.full_name || '?')
     }

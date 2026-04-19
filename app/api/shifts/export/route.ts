@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   const sb = getServiceClient()
   const { data, error } = await sb
     .from('shifts')
-    .select('*, employees(full_name, role, hourly_rate)')
+    .select('*, employees(full_name, hourly_rate)')
     .gte('date', startDate)
     .lt('date', endDate)
     .order('date')
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     const total = Math.round(hours * rate * 100) / 100
     return [
       emp.full_name || '',
-      ROLE_LABELS[emp.role] || emp.role || '',
+      ROLE_LABELS[s.role] || s.role || '',
       s.date,
       s.start_time,
       s.end_time,

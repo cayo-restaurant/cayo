@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     .from('shifts')
     .update(parsed.data)
     .eq('id', id)
-    .select('*, employees(full_name, role, hourly_rate)')
+    .select('*, employees(full_name, hourly_rate)')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

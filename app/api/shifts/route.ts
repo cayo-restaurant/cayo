@@ -3,8 +3,14 @@ import { z } from 'zod'
 import { requireAdmin } from '@/lib/admin-auth'
 import { getServiceClient } from '@/lib/supabase'
 
+const ROLES = ['bartender', 'waiter', 'host', 'kitchen', 'dishwasher', 'manager'] as const
+
 const createSchema = z.object({
   employee_id: z.string().uuid(),
+  // Which "bucket" this shift fills in the weekly grid. Independent of
+  // the employee's role list — an employee with roles [waiter, bartender]
+  // can have one shift with role=waiter and another with role=bartender.
+  role: z.enum(ROLES),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   start_time: z.string().regex(/^\d{2}:\d{2}$/),
   end_time: z.string().regex(/^\d{2}:\d{2}$/),
@@ -24,7 +30,7 @@ export async function GET(req: NextRequest) {
   const sb = getServiceClient()
   let query = sb
     .from('shifts')
-    .select('*, employees(full_name, role, hourly_rate)')
+    .select('*, employees(full_name, hourly_rate)')
     .order('date', { ascending: false })
     .order('start_time', { ascending: true })
 
@@ -62,7 +68,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await sb
     .from('shifts')
     .insert(parsed.data)
-    .select('*, employees(full_name, role, hourly_rate)')
+    .select('*, employees(full_name, hourly_rate)')
     .single()
 
   if (error) {
