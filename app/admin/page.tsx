@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import cayoLogo from '../../cayo_brand_page_005.png'
 import TablePickerModal from './components/TablePickerModal'
-import { computeFloorCapacityAt, FloorTable } from '@/lib/capacity'
+import { FloorTable } from '@/lib/capacity'
 import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
 
 type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
@@ -593,15 +593,6 @@ function Dashboard() {
       { time: '', guests: 0 }
     )
   }, [densityByTime])
-
-  // Floor-load buckets: booked guests vs real seat capacity across the
-  // evening in 30-min slots. Uses the same OCCUPYING_STATUSES filter as
-  // the rest of the capacity math.
-  const floorBuckets = useMemo(
-    () => computeFloorCapacityAt(dayAll, floorTables, selectedDate),
-    [dayAll, floorTables, selectedDate],
-  )
-  const totalRealCapacity = floorBuckets[0]?.realCapacity ?? 0
 
   // Returning-customer counts: map normalized phone → # of reservations by that phone
   // (excluding cancelled / no-show, since those didn't actually "come").
@@ -1232,41 +1223,6 @@ function Dashboard() {
               </div>
             )
           })()}
-        </div>
-
-        {/* Floor load — booked guests vs real seat capacity in 30-min buckets */}
-        <div className="mb-6 bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-black text-cayo-burgundy/70 uppercase tracking-wider">
-              עומס אולם
-            </h3>
-            <p className="text-xs font-bold text-cayo-burgundy/60">
-              {totalRealCapacity > 0
-                ? <>קיבולת אמיתית: <span className="text-cayo-burgundy">{totalRealCapacity}</span> מקומות</>
-                : <span className="text-cayo-burgundy/30">לא הוגדרו שולחנות במפה</span>}
-            </p>
-          </div>
-          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-            {floorBuckets.map(b => {
-              const bg =
-                b.status === 'over' ? 'bg-cayo-red/15 border-cayo-red/50 text-cayo-red'
-                : b.status === 'tight' ? 'bg-cayo-orange/15 border-cayo-orange/50 text-cayo-orange'
-                : 'bg-cayo-teal/10 border-cayo-teal/40 text-cayo-teal'
-              return (
-                <div
-                  key={b.start}
-                  role="img"
-                  aria-label={`${b.start} — ${b.bookedGuests} מתוך ${b.realCapacity} סועדים`}
-                  className={`border-2 rounded-lg px-1 py-2 text-center min-h-[56px] flex flex-col items-center justify-center ${bg}`}
-                >
-                  <p className="text-[10px] font-black leading-none" dir="ltr">{b.start}</p>
-                  <p className="text-sm font-black mt-1 leading-none" dir="ltr">
-                    {b.bookedGuests}<span className="opacity-60">/{b.realCapacity}</span>
-                  </p>
-                </div>
-              )
-            })}
-          </div>
         </div>
 
         {/* Monthly stats — aggregates for the calendar month of selectedDate */}
