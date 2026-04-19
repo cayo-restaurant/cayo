@@ -2,6 +2,46 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAdmin } from '@/lib/admin-auth'
 import { getServiceClient } from '@/lib/supabase'
+import { shiftDayLocal } from '@/lib/shift-day'
+
+// Reservations that still occupy a table and therefore block a table delete.
+// Kept in sync with OCCUPYING_STATUSES in lib/capacity.ts — inlined here to
+// avoid importing a server-only capacity calc for one Set lookup.
+const BLOCKING_STATUSES = ['pending', 'confirmed', 'arrived'] as const
+
+type Blocker = {
+  id: string
+  name: string
+  time: string
+  date: string
+  status: string
+}
+
+async function findBlockers(tableId: string): Promise<Blocker[]> {
+  const sb = getServiceClient()
+  const today = shiftDayLocal()
+  // Two-step fetch: junction rows by table, then matching reservations.
+  // Avoids Supabase's implicit relation-shape quirks and keeps the types
+  // plain. Both queries are small (one table, one dinner's reservations).
+  const { data: junction, error: jErr } = await sb
+    .from('reservation_tables')
+    .select('reservation_id')
+    .eq('table_id', tableId)
+  if (jErr) throw jErr
+  const ids = Array.from(new Set((junction ?? []).map(j => j.reservation_id as string)))
+  if (ids.length === 0) return []
+  const { data: reservations, error: rErr } = await sb
+    .from('reservations')
+    .select('id, name, time, date, status')
+    .in('id', ids)
+  if (rErr) throw rErr
+  const rows = (reservations ?? []) as Array<{
+    id: string; name: string; time: string; date: string; status: string
+  }>
+  return rows
+    .filter(r => (BLOCKING_STATUSES as readonly string[]).includes(r.status) && r.date >= today)
+    .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)))
+}
 
 const SHAPES = ['square', 'rectangle', 'bar_stool'] as const
 const AREAS = ['bar', 'table'] as const
@@ -85,7 +125,33 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   const { id } = await params
   const hard = req.nextUrl.searchParams.get('hard') === 'true'
+  const dryRun = req.nextUrl.searchParams.get('dryRun') === '1'
   const sb = getServiceClient()
+
+  // Pre-flight: any live/future reservation still assigned here blocks
+  // both soft-delete (which would otherwise leave orphan assignments
+  // pointing to an inactive table) and hard-delete (which the FK
+  // ON DELETE RESTRICT would reject anyway — we return a nicer 409).
+  let blockers: Blocker[]
+  try {
+    blockers = await findBlockers(id)
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'שגיאה בבדיקת שיוכים' },
+      { status: 500 },
+    )
+  }
+
+  if (dryRun) {
+    return NextResponse.json({ ok: blockers.length === 0, blockers })
+  }
+
+  if (blockers.length > 0) {
+    return NextResponse.json(
+      { error: 'לא ניתן למחוק: שולחן משוייך ל־' + blockers.length + ' הזמנות פעילות', blockers },
+      { status: 409 },
+    )
+  }
 
   if (hard) {
     const { error } = await sb.from('restaurant_tables').delete().eq('id', id)

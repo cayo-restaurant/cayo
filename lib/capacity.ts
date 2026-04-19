@@ -109,6 +109,64 @@ export function computeAvailability(
   }
 }
 
+// ── Real-floor capacity (admin floor-load strip) ─────────────────────────────
+//
+// Unlike computeAvailability above (which uses the aggregate BAR_CAPACITY /
+// TABLE_CAPACITY env pool), this function sums the actual `capacity_max` of
+// active restaurant_tables rows. The floor-load strip on the shift screen
+// uses this to show booked vs real seats per 30-min bucket.
+
+export interface FloorTable {
+  id: string
+  capacityMax: number
+  active: boolean
+}
+
+export type FloorBucketStatus = 'ok' | 'tight' | 'over'
+
+export interface FloorBucket {
+  start: string       // HH:mm
+  bookedGuests: number
+  realCapacity: number
+  status: FloorBucketStatus
+}
+
+export const DEFAULT_FLOOR_BUCKETS: string[] = [
+  '18:30', '19:00', '19:30', '20:00', '20:30',
+  '21:00', '21:30', '22:00', '22:30', '23:00',
+]
+
+export function computeFloorCapacityAt(
+  reservations: ReservationLike[],
+  tables: FloorTable[],
+  date: string,
+  opts: { buckets?: string[]; durationMinutes?: number } = {},
+): FloorBucket[] {
+  const buckets = opts.buckets ?? DEFAULT_FLOOR_BUCKETS
+  const duration = opts.durationMinutes ?? RESERVATION_DURATION_MINUTES
+  const realCapacity = tables
+    .filter(t => t.active)
+    .reduce((s, t) => s + t.capacityMax, 0)
+
+  const active = reservations.filter(
+    r => r.date === date && OCCUPYING_STATUSES.has(r.status),
+  )
+
+  return buckets.map(slot => {
+    const slotMin = timeToMinutes(slot)
+    let booked = 0
+    for (const r of active) {
+      const start = timeToMinutes(r.time)
+      const end = start + duration
+      if (slotMin >= start && slotMin < end) booked += r.guests
+    }
+    let status: FloorBucketStatus = 'ok'
+    if (booked > realCapacity) status = 'over'
+    else if (realCapacity > 0 && booked >= realCapacity * 0.9) status = 'tight'
+    return { start: slot, bookedGuests: booked, realCapacity, status }
+  })
+}
+
 // Single-slot variant used by the POST handler before creating a reservation,
 // and by PATCH to check if an update would violate capacity.
 // Returns `null` if there's room, or a human-readable Hebrew reason if not.

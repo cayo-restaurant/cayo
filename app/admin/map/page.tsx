@@ -4,6 +4,10 @@ import type { CSSProperties, DragEvent as ReactDragEvent, MouseEvent as ReactMou
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
+import TablePickerModal from '@/app/admin/components/TablePickerModal'
+import { classifyTable, TableLiveState, LiveTableStatus } from '@/lib/table-status'
+import { computeShiftDateStr } from '@/app/host/shared'
+import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
 
 // Types -------------------------------------------------------------------
 
@@ -31,6 +35,50 @@ interface RestaurantTable {
 const ROTATIONS = [0, 90, 180, 270] as const
 
 type EditableTable = RestaurantTable & { _draft?: boolean; _dirty?: boolean }
+
+// Shapes used by the reassign flow — must match TablePickerModal's
+// local ReservationLite and AssignedTable shapes.
+interface AssignedTableLite {
+  id: string
+  tableNumber: number
+  label: string | null
+  area: Area
+  capacityMin: number
+  capacityMax: number
+  isPrimary: boolean
+}
+interface ReservationLite {
+  id: string
+  name: string
+  time: string
+  date: string
+  status: string
+  guests: number
+  tables: AssignedTableLite[]
+}
+
+interface Blocker {
+  id: string
+  name: string
+  time: string
+  date: string
+  status: string
+}
+
+interface DeleteFlow {
+  tableId: string
+  tableNumber: number
+  blockers: Blocker[]
+}
+
+const STATUS_HE: Record<string, string> = {
+  pending: 'ממתין',
+  confirmed: 'מאושר',
+  arrived: 'הגיע/ה',
+  cancelled: 'בוטל',
+  no_show: 'לא הגיע',
+  completed: 'הסתיים',
+}
 
 // Canvas constants --------------------------------------------------------
 
@@ -123,6 +171,15 @@ export default function AdminMapPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saveInFlight, setSaveInFlight] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [deleteFlow, setDeleteFlow] = useState<DeleteFlow | null>(null)
+  const [reassign, setReassign] = useState<{
+    reservation: ReservationLite
+    all: ReservationLite[]
+  } | null>(null)
+  // Live mode state — reservations loaded only when !editMode.
+  const [liveReservations, setLiveReservations] = useState<ReservationLite[]>([])
+  const [livePopoverId, setLivePopoverId] = useState<string | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
 
   const load = async () => {
     setLoading(true)
@@ -149,6 +206,51 @@ export default function AdminMapPage() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status])
+
+  // Ref to the current live-reservations fetcher so the realtime handler
+  // can refresh without re-capturing the closure on every render.
+  const liveFetchRef = useRef<(() => Promise<void>) | null>(null)
+
+  // Live mode data: pull reservations, poll every 60 s as a fallback,
+  // and tick a 30 s clock so `reserved_soon` expires without a re-fetch.
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    if (editMode) {
+      setLiveReservations([])
+      setLivePopoverId(null)
+      return
+    }
+    let cancelled = false
+    const fetchLive = async () => {
+      try {
+        const res = await fetch('/api/reservations', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        const list: ReservationLite[] = Array.isArray(data?.reservations) ? data.reservations : []
+        if (!cancelled) setLiveReservations(list)
+      } catch { /* fallback: next tick */ }
+    }
+    fetchLive()
+    const poll = setInterval(fetchLive, 60000)
+    const tick = setInterval(() => setNowTick(Date.now()), 30000)
+    liveFetchRef.current = fetchLive
+    return () => {
+      cancelled = true
+      clearInterval(poll)
+      clearInterval(tick)
+      liveFetchRef.current = null
+    }
+  }, [status, editMode])
+
+  useAdminRealtime(!editMode && status === 'authenticated', (evt) => {
+    if (evt.table === 'restaurant_tables') {
+      // Layout changed somewhere else — reload the tables list.
+      load()
+      return
+    }
+    // reservations / reservation_tables: refresh the Live view's snapshot.
+    liveFetchRef.current?.()
+  })
 
   useEffect(() => {
     if (!editMode) return
@@ -239,6 +341,66 @@ export default function AdminMapPage() {
   const selected = tables.find((t) => t.id === selectedId) ?? null
   const pendingCount = tables.filter((t) => t._dirty || t._draft).length
 
+  // Live-mode classification: one TableLiveState per table id.
+  // nowTick is included implicitly via the re-render caused by setNowTick.
+  const liveByTableId: Map<string, TableLiveState> = (() => {
+    const out = new Map<string, TableLiveState>()
+    if (editMode) return out
+    const now = new Date(nowTick)
+    const shiftDate = computeShiftDateStr(now)
+    // Narrow the API's status: string into the classifier's enum.
+    const forLive = liveReservations.map((r) => ({
+      id: r.id,
+      name: r.name,
+      date: r.date,
+      time: r.time,
+      status: r.status as 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed',
+      guests: r.guests,
+      tables: r.tables.map((t) => ({ id: t.id })),
+    }))
+    for (const t of tables) {
+      out.set(t.id, classifyTable(t.id, forLive, now, shiftDate))
+    }
+    return out
+  })()
+
+  const popoverTable = livePopoverId ? tables.find((t) => t.id === livePopoverId) ?? null : null
+  const popoverLive = livePopoverId ? liveByTableId.get(livePopoverId) ?? null : null
+
+  const advanceStatus = async (reservationId: string, nextStatus: 'confirmed' | 'arrived') => {
+    // Optimistic merge so the popover reflects the change before the
+    // network round-trip returns.
+    setLiveReservations((prev) =>
+      prev.map((r) => (r.id === reservationId ? { ...r, status: nextStatus } : r)),
+    )
+    try {
+      const res = await fetch('/api/reservations/' + reservationId, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(typeof body?.error === 'string' ? body.error : 'שגיאה ' + res.status)
+      }
+      const body = await res.json()
+      const fresh = body.reservation
+      if (fresh) {
+        setLiveReservations((prev) => prev.map((r) => (r.id === fresh.id ? fresh : r)))
+      }
+    } catch (e) {
+      // Rollback by re-fetching the list.
+      setSaveError(e instanceof Error ? e.message : 'שגיאה בעדכון סטטוס')
+      try {
+        const r = await fetch('/api/reservations', { cache: 'no-store' })
+        if (r.ok) {
+          const data = await r.json()
+          setLiveReservations(Array.isArray(data?.reservations) ? data.reservations : [])
+        }
+      } catch { /* surfaced via saveError */ }
+    }
+  }
+
   const handleDropNew = (shape: Shape, x: number, y: number) => {
     const proto = PALETTE.find((p) => p.shape === shape)
     if (!proto) return
@@ -287,6 +449,32 @@ export default function AdminMapPage() {
     )
   }
 
+  // Run the server-side pre-flight. Returns the blocker list.
+  const preflightDelete = async (id: string): Promise<Blocker[]> => {
+    const res = await fetch('/api/admin/map/tables/' + id + '?dryRun=1', { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(
+        typeof body?.error === 'string' ? body.error : 'שגיאה ' + res.status,
+      )
+    }
+    const body = await res.json()
+    return Array.isArray(body?.blockers) ? (body.blockers as Blocker[]) : []
+  }
+
+  // Actual soft-delete after blockers are cleared.
+  const performDelete = async (id: string) => {
+    const res = await fetch('/api/admin/map/tables/' + id, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(
+        typeof body?.error === 'string' ? body.error : 'שגיאה ' + res.status,
+      )
+    }
+    setTables((prev) => prev.filter((x) => x.id !== id))
+    setSelectedId(null)
+  }
+
   const handleDelete = async (id: string) => {
     const t = tables.find((x) => x.id === id)
     if (!t) return
@@ -295,23 +483,66 @@ export default function AdminMapPage() {
       setSelectedId(null)
       return
     }
-    if (!confirm('למחוק את שולחן ' + t.table_number + '?')) return
 
-    setTables((prev) => prev.filter((x) => x.id !== id))
-    setSelectedId(null)
     try {
-      const res = await fetch('/api/admin/map/tables/' + id, { method: 'DELETE' })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(
-          typeof body?.error === 'string' ? body.error : 'שגיאה ' + res.status,
-        )
+      const blockers = await preflightDelete(id)
+      if (blockers.length === 0) {
+        if (!confirm('למחוק את שולחן ' + t.table_number + '?')) return
+        await performDelete(id)
+        return
       }
+      // Blockers present — show inline panel; no mutation yet.
+      setDeleteFlow({ tableId: id, tableNumber: t.table_number, blockers })
     } catch (e) {
       setSaveError(
         'מחיקת שולחן נכשלה: ' + (e instanceof Error ? e.message : 'שגיאה'),
       )
-      await load()
+    }
+  }
+
+  // Open the picker for a specific blocker. We need both the target
+  // reservation (with hydrated tables) and the full list so the picker
+  // can detect conflicts.
+  const openReassign = async (blocker: Blocker) => {
+    try {
+      const [oneRes, allRes] = await Promise.all([
+        fetch('/api/reservations/' + blocker.id, { cache: 'no-store' }),
+        fetch('/api/reservations', { cache: 'no-store' }),
+      ])
+      if (!oneRes.ok) throw new Error('שגיאה בטעינת ההזמנה')
+      if (!allRes.ok) throw new Error('שגיאה בטעינת רשימת ההזמנות')
+      const oneBody = await oneRes.json()
+      const allBody = await allRes.json()
+      const reservation: ReservationLite = oneBody.reservation
+      const all: ReservationLite[] = Array.isArray(allBody?.reservations) ? allBody.reservations : []
+      setReassign({ reservation, all })
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'שגיאה בפתיחת שיוך מחדש')
+    }
+  }
+
+  // After a reassign save, re-run the pre-flight for the table we
+  // were trying to delete. If the blocker list is now empty, the
+  // hostess can finalize the delete.
+  const onReassignSaved = async () => {
+    setReassign(null)
+    if (!deleteFlow) return
+    try {
+      const blockers = await preflightDelete(deleteFlow.tableId)
+      setDeleteFlow({ ...deleteFlow, blockers })
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'שגיאה ברענון חוסמים')
+    }
+  }
+
+  const finalizeBlockedDelete = async () => {
+    if (!deleteFlow) return
+    if (deleteFlow.blockers.length > 0) return
+    try {
+      await performDelete(deleteFlow.tableId)
+      setDeleteFlow(null)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'שגיאה במחיקה')
     }
   }
 
@@ -384,6 +615,63 @@ export default function AdminMapPage() {
         </div>
       )}
 
+      {deleteFlow && (
+        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 pt-4">
+          <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-black text-amber-900">
+                הזמנות חוסמות את המחיקה של שולחן {deleteFlow.tableNumber}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeleteFlow(null)}
+                className="text-amber-900/70 hover:text-amber-900 text-xs font-bold underline"
+              >
+                סגור
+              </button>
+            </div>
+
+            {deleteFlow.blockers.length === 0 ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-amber-900">אין עוד הזמנות חוסמות.</p>
+                <button
+                  type="button"
+                  onClick={finalizeBlockedDelete}
+                  className="bg-cayo-red text-white font-black text-sm rounded-lg px-4 py-2.5 min-h-[44px]"
+                >
+                  מחק שולחן
+                </button>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {deleteFlow.blockers.map((b) => (
+                  <li
+                    key={b.id}
+                    className="flex items-center justify-between gap-3 bg-white border border-amber-300 rounded-lg px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-cayo-burgundy truncate">
+                        {b.name || 'ללא שם'}
+                      </p>
+                      <p className="text-xs text-cayo-burgundy/70">
+                        {b.date} · {b.time} · {STATUS_HE[b.status] ?? b.status}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openReassign(b)}
+                      className="bg-cayo-burgundy text-white font-bold text-sm rounded-lg px-3 py-2 min-h-[44px] shrink-0"
+                    >
+                      שייך מחדש
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
         <div className={editMode ? 'grid grid-cols-1 lg:grid-cols-[180px_1fr_240px] gap-4' : ''}>
           {editMode && <Palette onDragStart={() => setSelectedId(null)} />}
@@ -397,6 +685,8 @@ export default function AdminMapPage() {
             onSelect={setSelectedId}
             onDropNew={handleDropNew}
             onMove={handleMove}
+            liveByTableId={liveByTableId}
+            onLiveClick={(id) => setLivePopoverId(id)}
           />
 
           {editMode && (
@@ -431,6 +721,117 @@ export default function AdminMapPage() {
             גרור צורה מהפאלטה · לחץ על שולחן לבחור · גרור שולחן להזזה · שינויים נשמרים אוטומטית
           </p>
         )}
+      </div>
+
+      {reassign && (
+        <TablePickerModal
+          open={true}
+          onClose={() => setReassign(null)}
+          reservation={reassign.reservation}
+          allReservations={reassign.all}
+          onSaved={onReassignSaved}
+        />
+      )}
+
+      {popoverTable && popoverLive && (
+        <LivePopover
+          tableNumber={popoverTable.table_number}
+          live={popoverLive}
+          onAdvance={advanceStatus}
+          onClose={() => setLivePopoverId(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function LivePopover({
+  tableNumber,
+  live,
+  onAdvance,
+  onClose,
+}: {
+  tableNumber: number
+  live: TableLiveState
+  onAdvance: (id: string, status: 'confirmed' | 'arrived') => void
+  onClose: () => void
+}) {
+  const dotColor =
+    live.status === 'occupied' ? 'bg-rose-500'
+    : live.status === 'reserved_soon' ? 'bg-amber-400'
+    : 'bg-emerald-500'
+  const statusHe: Record<string, string> = {
+    pending: 'ממתין', confirmed: 'מאושר', arrived: 'הגיע/ה',
+    cancelled: 'בוטל', no_show: 'לא הגיע', completed: 'הסתיים',
+  }
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-cayo-burgundy/10">
+          <div className="flex items-center gap-2">
+            <span className={'inline-block w-3 h-3 rounded-full ' + dotColor} aria-hidden="true" />
+            <h2 className="text-lg font-black text-cayo-burgundy">
+              שולחן {tableNumber}
+            </h2>
+            <span className="text-sm text-cayo-burgundy/70">· {LIVE_LABEL[live.status]}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700 text-2xl leading-none min-h-[44px] min-w-[44px]"
+            aria-label="סגור"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {live.rows.length === 0 && (
+            <p className="text-sm text-cayo-burgundy/60 text-center py-6">
+              אין הזמנות על השולחן הזה הערב.
+            </p>
+          )}
+          {live.rows.map((r) => (
+            <div
+              key={r.reservationId}
+              className="bg-cayo-cream border border-cayo-burgundy/10 rounded-xl px-3 py-2 flex items-center justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <p className="font-black text-cayo-burgundy truncate">
+                  {r.name || 'ללא שם'}
+                </p>
+                <p className="text-xs text-cayo-burgundy/70">
+                  {r.guests} סועד/ים · {r.time} · {statusHe[r.status] ?? r.status}
+                </p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                {r.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => onAdvance(r.reservationId, 'confirmed')}
+                    className="bg-cayo-teal text-white font-bold text-xs rounded-lg px-3 min-h-[44px]"
+                  >
+                    אשר
+                  </button>
+                )}
+                {(r.status === 'pending' || r.status === 'confirmed') && (
+                  <button
+                    type="button"
+                    onClick={() => onAdvance(r.reservationId, 'arrived')}
+                    className="bg-cayo-burgundy text-white font-bold text-xs rounded-lg px-3 min-h-[44px]"
+                  >
+                    סמן הגיעו
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -541,9 +942,14 @@ interface CanvasProps {
   onSelect: (id: string | null) => void
   onDropNew: (shape: Shape, x: number, y: number) => void
   onMove: (id: string, x: number, y: number) => void
+  liveByTableId: Map<string, TableLiveState>
+  onLiveClick: (id: string) => void
 }
 
-function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onDropNew, onMove }: CanvasProps) {
+function MapCanvas({
+  tables, loading, error, editMode, selectedId, onSelect, onDropNew, onMove,
+  liveByTableId, onLiveClick,
+}: CanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null)
@@ -655,6 +1061,8 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
             isDragging={t.id === draggingId}
             onStartDrag={handleStartDrag}
             onSelect={onSelect}
+            live={editMode ? null : liveByTableId.get(t.id) ?? null}
+            onLiveClick={onLiveClick}
           />
         ))}
       </div>
@@ -687,6 +1095,17 @@ function MapCanvas({ tables, loading, error, editMode, selectedId, onSelect, onD
 
 // Single table ------------------------------------------------------------
 
+const LIVE_COLOR: Record<LiveTableStatus, string> = {
+  occupied: 'bg-rose-500/80 border-rose-700 text-white',
+  reserved_soon: 'bg-amber-400/80 border-amber-600 text-cayo-burgundy',
+  free: 'bg-emerald-400/70 border-emerald-600 text-cayo-burgundy',
+}
+const LIVE_LABEL: Record<LiveTableStatus, string> = {
+  occupied: 'תפוס',
+  reserved_soon: 'מוזמן בקרוב',
+  free: 'פנוי',
+}
+
 function TableShape({
   table,
   selected,
@@ -694,6 +1113,8 @@ function TableShape({
   isDragging,
   onStartDrag,
   onSelect,
+  live,
+  onLiveClick,
 }: {
   table: EditableTable
   selected: boolean
@@ -701,6 +1122,8 @@ function TableShape({
   isDragging: boolean
   onStartDrag: (id: string, clientX: number, clientY: number) => void
   onSelect: (id: string | null) => void
+  live: TableLiveState | null
+  onLiveClick: (id: string) => void
 }) {
   const isBarStool = table.shape === 'bar_stool'
 
@@ -717,35 +1140,50 @@ function TableShape({
     opacity: isDragging ? 0.85 : 1,
   }
 
-  const colorClasses = table._draft
+  const editColor = table._draft
     ? 'bg-cayo-orange/25 border-cayo-orange text-cayo-burgundy'
     : table._dirty
       ? 'bg-cayo-teal/30 border-cayo-teal text-cayo-burgundy'
       : 'bg-cayo-teal/15 border-cayo-teal/50 text-cayo-burgundy'
+  const colorClasses = !editMode && live ? LIVE_COLOR[live.status] : editColor
   const selectedClasses = selected ? 'ring-4 ring-cayo-burgundy/60' : ''
   const radiusClass = isBarStool ? 'rounded-full' : 'rounded-md'
-  const cursorClass = editMode ? 'cursor-move' : ''
+  const cursorClass = editMode ? 'cursor-move' : (live ? 'cursor-pointer' : '')
+
+  const liveAriaLabel = !editMode && live
+    ? 'שולחן ' + table.table_number + ' — ' + LIVE_LABEL[live.status]
+    : undefined
 
   return (
     <div
       style={style}
+      role={!editMode && live ? 'button' : undefined}
+      aria-label={liveAriaLabel}
       onPointerDown={(e) => {
         if (!editMode || e.button !== 0) return
         e.stopPropagation()
         onStartDrag(table.id, e.clientX, e.clientY)
       }}
       onClick={(e) => {
-        if (!editMode) return
         e.stopPropagation()
-        onSelect(table.id)
+        if (editMode) { onSelect(table.id); return }
+        if (live) onLiveClick(table.id)
       }}
       className={
         colorClasses + ' ' + radiusClass + ' ' + selectedClasses + ' ' + cursorClass +
-        ' border-2 flex items-center justify-center font-black select-none transition-shadow'
+        ' border-2 flex items-center justify-center font-black select-none transition-shadow relative'
       }
       title={'שולחן ' + table.table_number + ' · ' + table.capacity_min + '-' + table.capacity_max + ' סועדים'}
     >
       <span className="text-xs sm:text-sm md:text-base">{table.table_number}</span>
+      {!editMode && live && live.next && (
+        <span
+          className="absolute -bottom-1 -left-1 bg-white text-cayo-burgundy text-[10px] font-black rounded px-1 py-0.5 border border-cayo-burgundy/20 leading-none"
+          aria-hidden="true"
+        >
+          {live.next.initials} · {live.next.time}
+        </span>
+      )}
     </div>
   )
 }

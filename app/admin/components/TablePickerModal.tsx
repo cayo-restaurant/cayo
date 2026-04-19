@@ -13,6 +13,7 @@
 // shipped in Phase 1 just never exercised that shape. This picker
 // now does.
 import { useEffect, useMemo, useState } from 'react'
+import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
 
 interface TableLite {
   id: string
@@ -115,6 +116,7 @@ export default function TablePickerModal({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [externalToast, setExternalToast] = useState<string>('')
   // Ordered list — index 0 is the primary (the one that shows on the
   // reservation card). We build the initial list by putting the current
   // primary first, then the rest in whatever order the server returned.
@@ -154,6 +156,23 @@ export default function TablePickerModal({
       cancelled = true
     }
   }, [open])
+
+  // Cross-device change handling: if another admin edits reservations or
+  // the tables layout while this modal is open, refresh the tables list
+  // and show a brief toast. The parent already feeds fresh allReservations
+  // via its own realtime hook, so conflicts in the rows update on their
+  // own render.
+  useAdminRealtime(open, (evt) => {
+    if (evt.table === 'restaurant_tables' || evt.table === 'reservation_tables' || evt.table === 'reservations') {
+      setExternalToast('ההזמנות עודכנו — מרענן זמינות')
+      fetch('/api/admin/map/tables', { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : Promise.reject(r)))
+        .then((data: TableLite[]) => setTables(Array.isArray(data) ? data : []))
+        .catch(() => { /* surfaced via existing error */ })
+      // Auto-dismiss the toast after a couple of seconds.
+      setTimeout(() => setExternalToast(''), 2500)
+    }
+  })
 
   if (!open) return null
 
@@ -360,6 +379,11 @@ export default function TablePickerModal({
 
         {/* Footer */}
         <div className="p-5 border-t border-cayo-burgundy/10 space-y-2">
+          {externalToast && (
+            <p className="text-xs font-bold text-center bg-cayo-orange/15 text-cayo-orange rounded-lg py-1.5">
+              {externalToast}
+            </p>
+          )}
           {capacityTotals && (
             <p className="text-xs font-bold text-cayo-burgundy/80 text-center bg-cayo-burgundy/5 rounded-lg py-1.5">
               קיבולת שילוב {capacityTotals.min === capacityTotals.max

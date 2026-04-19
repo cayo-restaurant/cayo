@@ -6,6 +6,8 @@ import Image from 'next/image'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import cayoLogo from '../../cayo_brand_page_005.png'
 import TablePickerModal from './components/TablePickerModal'
+import { computeFloorCapacityAt, FloorTable } from '@/lib/capacity'
+import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
 
 type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 type Area = 'bar' | 'table'
@@ -421,6 +423,8 @@ function Dashboard() {
 
   // Today overview — shifts
   const [todayShifts, setTodayShifts] = useState<TodayShift[]>([])
+  // Real floor for the floor-load strip + per-row undersize check.
+  const [floorTables, setFloorTables] = useState<FloorTable[]>([])
 
   async function loadTodayShifts() {
     const today = toDateString(new Date())
@@ -430,6 +434,20 @@ function Dashboard() {
       const all: TodayShift[] = await res.json()
       setTodayShifts(all.filter(s => s.date === today))
     }
+  }
+
+  async function loadFloorTables() {
+    const res = await fetch('/api/admin/map/tables', { cache: 'no-store' })
+    if (!res.ok) return
+    const rows = await res.json()
+    if (!Array.isArray(rows)) return
+    setFloorTables(
+      rows.map((t: { id: string; capacity_max: number; active: boolean }) => ({
+        id: t.id,
+        capacityMax: t.capacity_max,
+        active: t.active,
+      })),
+    )
   }
 
   async function load() {
@@ -450,6 +468,7 @@ function Dashboard() {
   useEffect(() => {
     load()
     loadTodayShifts()
+    loadFloorTables()
   }, [])
 
   // Tick `now` every 30 seconds so the "חדש" badge expires on time without reloads
@@ -460,13 +479,29 @@ function Dashboard() {
 
   // Refresh reservations every 60s so the admin view doesn't drift from
   // hostess-side updates (status changes during service). Skip refresh while
-  // a modal is open so we don't blow away an in-progress edit.
+  // a modal is open so we don't blow away an in-progress edit. Realtime
+  // (below) makes this a fallback; we keep the poll to recover if the SSE
+  // connection drops on a flaky network.
   useEffect(() => {
     const id = setInterval(() => {
       if (modal === null && deleteConfirm === null && pickerFor === null) load()
     }, 60_000)
     return () => clearInterval(id)
   }, [modal, deleteConfirm, pickerFor])
+
+  // Realtime: any INSERT/UPDATE/DELETE on reservations or reservation_tables
+  // triggers a reload. We don't try to merge row-by-row because `tables`
+  // is a hydrated join and the event payload only has the raw row.
+  useAdminRealtime(true, (evt) => {
+    if (evt.table === 'reservations' || evt.table === 'reservation_tables') {
+      if (modal === null && deleteConfirm === null && pickerFor === null) {
+        load()
+      }
+    }
+    if (evt.table === 'restaurant_tables') {
+      loadFloorTables()
+    }
+  })
 
   async function changeStatus(id: string, status: Status) {
     await fetch(`/api/reservations/${id}`, {
@@ -558,6 +593,15 @@ function Dashboard() {
       { time: '', guests: 0 }
     )
   }, [densityByTime])
+
+  // Floor-load buckets: booked guests vs real seat capacity across the
+  // evening in 30-min slots. Uses the same OCCUPYING_STATUSES filter as
+  // the rest of the capacity math.
+  const floorBuckets = useMemo(
+    () => computeFloorCapacityAt(dayAll, floorTables, selectedDate),
+    [dayAll, floorTables, selectedDate],
+  )
+  const totalRealCapacity = floorBuckets[0]?.realCapacity ?? 0
 
   // Returning-customer counts: map normalized phone → # of reservations by that phone
   // (excluding cancelled / no-show, since those didn't actually "come").
@@ -773,7 +817,7 @@ function Dashboard() {
               Hidden for cancelled / no_show / completed — no point assigning a
               table to a reservation that's already resolved. */}
           {r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed' && (
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               {r.tables.length > 0 ? (
                 <button
                   onClick={() => setPickerFor(r)}
@@ -802,6 +846,16 @@ function Dashboard() {
                   <span>שייך</span>
                 </button>
               )}
+              {(() => {
+                if (r.tables.length === 0) return null
+                const seats = r.tables.reduce((s, t) => s + t.capacityMax, 0)
+                if (seats >= r.guests) return null
+                return (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full bg-cayo-orange/20 text-cayo-orange border border-cayo-orange/40">
+                    ⚠ חריגת תפוסה: {r.guests} סועדים על {seats} מקומות
+                  </span>
+                )
+              })()}
             </div>
           )}
         </div>
@@ -1178,6 +1232,41 @@ function Dashboard() {
               </div>
             )
           })()}
+        </div>
+
+        {/* Floor load — booked guests vs real seat capacity in 30-min buckets */}
+        <div className="mb-6 bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-black text-cayo-burgundy/70 uppercase tracking-wider">
+              עומס אולם
+            </h3>
+            <p className="text-xs font-bold text-cayo-burgundy/60">
+              {totalRealCapacity > 0
+                ? <>קיבולת אמיתית: <span className="text-cayo-burgundy">{totalRealCapacity}</span> מקומות</>
+                : <span className="text-cayo-burgundy/30">לא הוגדרו שולחנות במפה</span>}
+            </p>
+          </div>
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+            {floorBuckets.map(b => {
+              const bg =
+                b.status === 'over' ? 'bg-cayo-red/15 border-cayo-red/50 text-cayo-red'
+                : b.status === 'tight' ? 'bg-cayo-orange/15 border-cayo-orange/50 text-cayo-orange'
+                : 'bg-cayo-teal/10 border-cayo-teal/40 text-cayo-teal'
+              return (
+                <div
+                  key={b.start}
+                  role="img"
+                  aria-label={`${b.start} — ${b.bookedGuests} מתוך ${b.realCapacity} סועדים`}
+                  className={`border-2 rounded-lg px-1 py-2 text-center min-h-[56px] flex flex-col items-center justify-center ${bg}`}
+                >
+                  <p className="text-[10px] font-black leading-none" dir="ltr">{b.start}</p>
+                  <p className="text-sm font-black mt-1 leading-none" dir="ltr">
+                    {b.bookedGuests}<span className="opacity-60">/{b.realCapacity}</span>
+                  </p>
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         {/* Monthly stats — aggregates for the calendar month of selectedDate */}
