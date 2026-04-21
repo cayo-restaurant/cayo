@@ -1031,20 +1031,6 @@ function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <Link
-              href="/admin/dashboard"
-              className="text-sm font-bold text-cayo-burgundy/70 hover:text-cayo-burgundy transition-colors"
-              title="דשבורד הזמנות"
-            >
-              דשבורד
-            </Link>
-            <Link
-              href="/host"
-              className="text-sm font-bold text-cayo-teal hover:text-cayo-burgundy transition-colors"
-              title="מעבר למצב משמרת"
-            >
-              מצב משמרת ←
-            </Link>
             <button onClick={logout} className="text-sm font-bold text-cayo-burgundy/70 hover:text-cayo-burgundy">
               יציאה
             </button>
@@ -1053,90 +1039,6 @@ function Dashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-6">
-        {/* ===== TODAY OVERVIEW ===== */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          {/* Workers tonight */}
-          <div className="bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-black text-cayo-burgundy/60 uppercase tracking-wider">צוות הערב</h3>
-              <span className="text-2xl font-black text-cayo-burgundy">{todayOverview.totalWorkers}</span>
-            </div>
-            {todayOverview.totalWorkers === 0 ? (
-              <p className="text-xs text-cayo-burgundy/30">לא שובצו עובדים להיום</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(todayOverview.byRole).map(([role, names]) => (
-                  <span key={role} className="text-[11px] font-bold bg-cayo-burgundy/8 text-cayo-burgundy/70 px-2 py-0.5 rounded-full">
-                    {ROLE_LABEL_DASH[role] || role} {names.length}
-                  </span>
-                ))}
-              </div>
-            )}
-            <Link href="/admin/hours" className="block mt-3 text-xs font-bold text-cayo-burgundy hover:underline">
-              סידור עבודה ←
-            </Link>
-          </div>
-
-          {/* Reservations tonight */}
-          <div className="bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-black text-cayo-burgundy/60 uppercase tracking-wider">הזמנות הערב</h3>
-              <span className="text-2xl font-black text-cayo-burgundy">{todayOverview.totalReservations}</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {todayOverview.pendingRes > 0 && (
-                <span className="text-[11px] font-bold bg-cayo-orange/15 text-cayo-orange px-2 py-0.5 rounded-full">
-                  ממתין {todayOverview.pendingRes}
-                </span>
-              )}
-              {todayOverview.confirmedRes > 0 && (
-                <span className="text-[11px] font-bold bg-cayo-teal/15 text-cayo-teal px-2 py-0.5 rounded-full">
-                  מאושר {todayOverview.confirmedRes}
-                </span>
-              )}
-              {todayOverview.arrivedRes > 0 && (
-                <span className="text-[11px] font-bold bg-cayo-burgundy/15 text-cayo-burgundy px-2 py-0.5 rounded-full">
-                  הגיעו {todayOverview.arrivedRes}
-                </span>
-              )}
-            </div>
-            <p className="mt-3 text-xs text-cayo-burgundy/50">
-              <span className="font-bold text-cayo-burgundy">{todayOverview.totalGuests}</span> סועדים צפויים
-            </p>
-          </div>
-
-          {/* Quick actions */}
-          <div className="bg-white border-2 border-cayo-burgundy/15 rounded-2xl p-4 flex flex-col justify-between">
-            <h3 className="text-xs font-black text-cayo-burgundy/60 uppercase tracking-wider mb-3">פעולות מהירות</h3>
-            <div className="flex flex-col gap-2">
-              <Link
-                href="/admin/hours"
-                className="text-center text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy/8 text-cayo-burgundy hover:bg-cayo-burgundy/15 transition-colors"
-              >
-                חישוב טיפים
-              </Link>
-              <Link
-                href="/admin/employees"
-                className="text-center text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy/8 text-cayo-burgundy hover:bg-cayo-burgundy/15 transition-colors"
-              >
-                ניהול עובדים
-              </Link>
-              <Link
-                href="/admin/map"
-                className="text-center text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy/8 text-cayo-burgundy hover:bg-cayo-burgundy/15 transition-colors"
-              >
-                מפת מסעדה
-              </Link>
-              <button
-                onClick={openCreate}
-                className="text-xs font-bold py-2 px-3 rounded-lg bg-cayo-burgundy text-white hover:bg-cayo-burgundy/90 transition-colors"
-              >
-                + הזמנה חדשה
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* Day navigator */}
         <div className="bg-cayo-burgundy text-white rounded-2xl p-5 mb-6">
           <div className="flex items-center justify-between gap-3 mb-4">
