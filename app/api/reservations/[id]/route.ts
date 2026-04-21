@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { deleteReservation, updateReservation, getReservation, listReservations, createReservation } from '@/lib/reservations-store'
+import { deleteReservation, updateReservation, getReservation, listReservations, createReservation, logReservationEvent } from '@/lib/reservations-store'
 import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
 import { VALID_TIMES, computeAvailability, checkSlotAvailability } from '@/lib/capacity'
@@ -117,6 +117,9 @@ export async function PATCH(
       }
     }
 
+    // Snapshot the pre-update state so we can log diffs below.
+    const pre = await getReservation(params.id)
+
     const updated = await updateReservation(params.id, patchData, { expectedUpdatedAt })
     if (!updated) {
       // Conflict: either reservation not found or optimistic lock failed
@@ -124,6 +127,50 @@ export async function PATCH(
         { error: 'ההזמנה שונתה על ידי משתמש אחר. אנא רענן ונסה שוב.' },
         { status: 409 }
       )
+    }
+
+    // ── Audit events ─────────────────────────────────────────────────────────
+    // Record any field-level changes that matter for the analytics dashboard.
+    // Failures here are swallowed inside logReservationEvent so they never
+    // break the PATCH response.
+    if (pre) {
+      const actor = admin ? 'admin' : host ? 'host' : 'unknown'
+      if (patchData.status && patchData.status !== pre.status) {
+        void logReservationEvent({
+          reservationId: params.id,
+          eventType: 'status_change',
+          actor,
+          oldValue: pre.status,
+          newValue: updated.status,
+        })
+      }
+      if (patchData.guests !== undefined && patchData.guests !== pre.guests) {
+        void logReservationEvent({
+          reservationId: params.id,
+          eventType: 'guests_change',
+          actor,
+          oldValue: pre.guests,
+          newValue: updated.guests,
+        })
+      }
+      if (patchData.time !== undefined && patchData.time !== pre.time) {
+        void logReservationEvent({
+          reservationId: params.id,
+          eventType: 'time_change',
+          actor,
+          oldValue: pre.time,
+          newValue: updated.time,
+        })
+      }
+      if (patchData.date !== undefined && patchData.date !== pre.date) {
+        void logReservationEvent({
+          reservationId: params.id,
+          eventType: 'date_change',
+          actor,
+          oldValue: pre.date,
+          newValue: updated.date,
+        })
+      }
     }
 
     // ── Waiting list promotion ────────────────────────────────────────────────
@@ -150,7 +197,9 @@ export async function PATCH(
           )
           if (bestTables.length === 0) continue
 
-          // Create a new reservation from the waiting list entry
+          // Create a new reservation from the waiting list entry. Source
+          // stays 'customer' — this guest originally booked via the public form
+          // and just got promoted off the waiting list.
           const newReservation = await createReservation({
             name: candidate.name,
             phone: candidate.phone,
@@ -160,7 +209,8 @@ export async function PATCH(
             area: 'table',
             guests: candidate.guests,
             terms: true,
-          })
+            source: 'customer',
+          }, { actor: 'system' })
           await setAssignments(
             newReservation.id,
             bestTables.map(t => t.id),

@@ -178,6 +178,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: capacityError }, { status: 409 })
     }
 
+    // Tag the reservation with its origin so analytics can tell a
+    // customer-driven booking apart from a walk-in / phone booking created
+    // by staff.
+    const source = admin ? 'admin' : host ? 'host' : 'customer'
     // Backfill defaults so DB columns stay non-null for admin-created entries
     // where the hostess hasn't collected name/phone/email yet.
     const reservation = await createReservation({
@@ -186,7 +190,8 @@ export async function POST(request: Request) {
       phone: parsed.data.phone || '',
       email: parsed.data.email || '',
       terms: parsed.data.terms ?? true,
-    })
+      source,
+    }, { actor: source })
 
     // Confirmation emails are temporarily disabled by request of the owner.
     // Previously we had a `sendConfirmation` call here guarded by `if (false && ...)`

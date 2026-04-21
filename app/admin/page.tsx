@@ -1032,6 +1032,13 @@ function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <Link
+              href="/admin/dashboard"
+              className="text-sm font-bold text-cayo-burgundy/70 hover:text-cayo-burgundy transition-colors"
+              title="דשבורד הזמנות"
+            >
+              דשבורד
+            </Link>
+            <Link
               href="/host"
               className="text-sm font-bold text-cayo-teal hover:text-cayo-burgundy transition-colors"
               title="מעבר למצב משמרת"

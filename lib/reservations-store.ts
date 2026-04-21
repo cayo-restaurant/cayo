@@ -13,6 +13,12 @@ export type ReservationStatus =
   | 'no_show'
   | 'completed'
 export type ReservationArea = 'bar' | 'table'
+// Who initiated a reservation. 'unknown' covers rows that predate the
+// source column (backfilled default).
+export type ReservationSource = 'customer' | 'admin' | 'host' | 'unknown'
+// Who performed an audit-log action. 'system' is reserved for background
+// sweeps (e.g. auto no_show on stale confirmed).
+export type ReservationActor = ReservationSource | 'system'
 
 export interface Reservation {
   id: string
@@ -29,6 +35,9 @@ export interface Reservation {
   internalNotes?: string
   createdAt: string
   updatedAt: string
+  // Who created this reservation. 'unknown' for rows that predate the
+  // source column.
+  source: ReservationSource
   // Populated by listReservations/getReservation. May be empty if
   // the hostess hasn't assigned a physical table yet.
   tables: AssignedTable[]
@@ -48,6 +57,7 @@ interface Row {
   status: ReservationStatus
   notes: string | null
   internal_notes: string | null
+  source: ReservationSource | null
   created_at: string
   updated_at: string
 }
@@ -68,6 +78,7 @@ function rowToReservation(row: Row, tables: AssignedTable[] = []): Reservation {
     internalNotes: row.internal_notes ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    source: row.source ?? 'unknown',
     tables,
   }
 }
@@ -101,7 +112,8 @@ export async function getReservation(id: string): Promise<Reservation | null> {
 }
 
 export async function createReservation(
-  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'tables'>
+  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'tables' | 'source'> & { source?: ReservationSource },
+  opts: { actor?: ReservationActor } = {}
 ): Promise<Reservation> {
   const sb = getServiceClient()
   const now = new Date().toISOString()
@@ -117,6 +129,7 @@ export async function createReservation(
     terms: data.terms,
     status: 'pending' as ReservationStatus,
     notes: data.notes ?? null,
+    source: data.source ?? 'unknown',
     created_at: now,
     updated_at: now,
   }
@@ -126,6 +139,20 @@ export async function createReservation(
     .select('*')
     .single()
   if (error) throw error
+  // Fire-and-forget audit event. Failures are swallowed inside the logger
+  // so we never break reservation creation on audit-log issues.
+  void logReservationEvent({
+    reservationId: (inserted as Row).id,
+    eventType: 'created',
+    actor: opts.actor ?? (data.source ?? 'unknown'),
+    newValue: {
+      name: data.name,
+      date: data.date,
+      time: data.time,
+      area: data.area,
+      guests: data.guests,
+    },
+  })
   // New reservations have no assignments yet.
   return rowToReservation(inserted as Row, [])
 }
@@ -157,6 +184,7 @@ export async function updateReservation(
   if (patch.status !== undefined) patchRow.status = patch.status
   if (patch.notes !== undefined) patchRow.notes = patch.notes || null
   if (patch.internalNotes !== undefined) patchRow.internal_notes = patch.internalNotes || null
+  if (patch.source !== undefined) patchRow.source = patch.source
 
   let query = sb
     .from(TABLE)
@@ -215,4 +243,33 @@ export async function deleteReservation(id: string): Promise<boolean> {
     .eq('id', id)
   if (error) throw error
   return (count ?? 0) > 0
+}
+
+// ── Audit log ───────────────────────────────────────────────────────────────
+// Append-only event log used to power the analytics dashboard. Write failures
+// are logged but never thrown — audit gaps are preferable to broken writes.
+export interface ReservationEventInput {
+  reservationId: string
+  eventType: string
+  actor: ReservationActor
+  oldValue?: unknown
+  newValue?: unknown
+}
+
+export async function logReservationEvent(input: ReservationEventInput): Promise<void> {
+  try {
+    const sb = getServiceClient()
+    const { error } = await sb.from('reservation_events').insert({
+      reservation_id: input.reservationId,
+      event_type: input.eventType,
+      actor: input.actor,
+      old_value: input.oldValue ?? null,
+      new_value: input.newValue ?? null,
+    })
+    if (error) {
+      console.error('[logReservationEvent] insert error:', error)
+    }
+  } catch (err) {
+    console.error('[logReservationEvent] unexpected:', err)
+  }
 }
