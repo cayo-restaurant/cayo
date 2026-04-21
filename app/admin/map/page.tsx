@@ -668,18 +668,20 @@ export default function AdminMapPage() {
         <div className={editMode ? 'grid grid-cols-1 lg:grid-cols-[180px_1fr_240px] gap-4' : ''}>
           {editMode && <Palette onDragStart={() => setSelectedId(null)} />}
 
-          <MapCanvas
-            tables={tables}
-            loading={loading}
-            error={error}
-            editMode={editMode}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onDropNew={handleDropNew}
-            onMove={handleMove}
-            liveByTableId={liveByTableId}
-            onLiveClick={(id) => setLivePopoverId(id)}
-          />
+          <div className="overflow-x-auto sm:overflow-visible -mx-4 sm:mx-0 px-4 sm:px-0 touch-pan-x">
+            <MapCanvas
+              tables={tables}
+              loading={loading}
+              error={error}
+              editMode={editMode}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onDropNew={handleDropNew}
+              onMove={handleMove}
+              liveByTableId={liveByTableId}
+              onLiveClick={(id) => setLivePopoverId(id)}
+            />
+          </div>
 
           {editMode && (
             <EditPanel
@@ -1008,7 +1010,7 @@ function MapCanvas({
       onClick={handleCanvasClick}
       data-canvas="1"
       className={
-        'relative bg-white border-2 rounded-2xl mx-auto overflow-hidden '
+        'relative bg-white border-2 rounded-2xl mx-auto overflow-hidden min-w-[640px] sm:min-w-0 '
         + (editMode
           ? 'border-cayo-orange/40 border-dashed'
           : 'border-cayo-burgundy/25 border-dashed')
