@@ -26,6 +26,7 @@ import {
   HEBREW_DAYS,
   HEBREW_MONTHS,
   Reservation,
+  ReservationDetailModal,
   ReservationRow,
   Status,
   TableLite,
@@ -34,7 +35,6 @@ import {
   shiftAdjustedDate,
 } from './shared'
 import { UndoToast, UndoToastState } from '../../components/UndoToast'
-import TablePickerModal from '../admin/components/TablePickerModal'
 
 export default function HostDashboard() {
   const router = useRouter()
@@ -59,10 +59,8 @@ export default function HostDashboard() {
   // once we pass it down as a prop (saves a second round-trip when it
   // opens). Tables change rarely enough that a 60s poll isn't worth it.
   const [tables, setTables] = useState<TableLite[]>([])
-  // Only one row is expanded at a time — auto-collapse siblings so the
-  // hostess always has a short, scannable list. Rows that transition to
-  // arrived/no_show are auto-closed via the effect below.
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Detail modal — when set, shows the full reservation detail/edit modal.
+  const [editingReservation, setEditingReservation] = useState<Enriched | null>(null)
 
   async function load() {
     try {
@@ -237,16 +235,10 @@ export default function HostDashboard() {
 
   const enriched: Enriched[] = useMemo(() => enrich(items, now, tables), [items, now, tables])
 
-  // Auto-collapse the expanded row once it transitions to arrived/no_show
-  // (previously handled inside ReservationRow itself; now that expand
-  // state lives here, the parent owns the rule).
-  useEffect(() => {
-    if (!expandedId) return
-    const row = items.find(r => r.id === expandedId)
-    if (!row || row.status === 'arrived' || row.status === 'no_show') {
-      setExpandedId(null)
-    }
-  }, [items, expandedId])
+  async function updateReservation(id: string, updates: Partial<Reservation>) {
+    setItems(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r))
+    setEditingReservation(prev => prev && prev.id === id ? { ...prev, ...updates } : prev)
+  }
 
   const lateItems = enriched.filter(r => r.bucket === 'late')
   const soonItems = enriched.filter(r => r.bucket === 'soon')
@@ -329,37 +321,6 @@ export default function HostDashboard() {
           </Link>
         </div>
 
-        {/* Late banner — most important piece of the UI. When there's a
-            single late reservation we surface a big call-now button right
-            here so the hostess reacts with one tap from the top of the
-            screen. When there are multiple, the per-row phone pills carry
-            the action (we can't dial "all of them" at once). */}
-        {lateItems.length > 0 && (
-          <div className="mb-4 bg-cayo-red/10 border-2 border-cayo-red/40 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="inline-block w-2 h-2 rounded-full bg-cayo-red animate-pulse" aria-hidden="true" />
-              <p className="text-cayo-red font-black text-sm">
-                {lateItems.length === 1 ? 'הזמנה מאחרת' : `${lateItems.length} הזמנות מאחרות`}
-              </p>
-            </div>
-            <p className="text-xs text-cayo-red/80 font-bold">
-              יש להתקשר ולוודא הגעה, או לסמן &quot;לא הגיע/ה&quot;
-            </p>
-            {lateItems.length === 1 && lateItems[0].phone && (
-              <a
-                href={`tel:${lateItems[0].phone.replace(/[^\d+]/g, '')}`}
-                className="mt-3 w-full h-11 rounded-xl bg-cayo-red text-white font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-                aria-label={`התקשרי ל-${lateItems[0].name || 'הזמנה המאחרת'}`}
-              >
-                <span className="text-lg leading-none">📞</span>
-                <span>
-                  התקשרי {lateItems[0].name ? `ל-${lateItems[0].name}` : ''}
-                </span>
-              </a>
-            )}
-          </div>
-        )}
-
         {error && (
           <div className="mb-4 bg-cayo-red/5 border-2 border-cayo-red/30 rounded-xl p-3 text-center text-sm font-bold text-cayo-red">
             {error}
@@ -413,34 +374,26 @@ export default function HostDashboard() {
                       onArrived={() => setStatus(r.id, 'arrived')}
                       onNoShow={() => setStatus(r.id, 'no_show')}
                       onUndo={() => setStatus(r.id, 'confirmed')}
-                      onAssign={() => setPickerFor(r)}
-                      onQuickAssign={(tableId) => quickAssign(r.id, tableId)}
-                      isExpanded={expandedId === r.id}
-                      onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                      onEdit={() => setEditingReservation(r)}
                     />
                   </li>
                 )
               })}
             </ul>
             <p className="text-[11px] text-cayo-burgundy/75 text-center mt-3 font-bold">
-              החליקי הזמנה ימינה לסימון מהיר · הקישי להצגת פרטים
+              הקישי להצגת פרטים · החליקי ימינה לסימון מהיר
             </p>
           </>
         )}
       </main>
       <UndoToast state={undoToast} onClose={() => setUndoToast(null)} />
-      {pickerFor && (
-        <TablePickerModal
-          open={true}
-          onClose={() => setPickerFor(null)}
-          reservation={pickerFor}
+      {editingReservation && (
+        <ReservationDetailModal
+          reservation={editingReservation}
+          onClose={() => setEditingReservation(null)}
+          onSaved={(updates) => updateReservation(editingReservation.id, updates)}
+          allTables={tables}
           allReservations={items}
-          onSaved={(tables: AssignedTable[]) => {
-            setItems(prev =>
-              prev.map(it => (it.id === pickerFor.id ? { ...it, tables } : it)),
-            )
-            setPickerFor(null)
-          }}
         />
       )}
     </div>

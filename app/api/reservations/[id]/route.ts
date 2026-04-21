@@ -63,17 +63,10 @@ export async function PATCH(
     const patchData = { ...parsed.data }
     delete patchData.expectedUpdatedAt
 
-    // Narrow what the hostess is allowed to change: status only, and only to
-    // one of {arrived, no_show, confirmed} — never pending/cancelled, and
-    // never any other field like name/time/phone. Also require the
-    // reservation to be on today's date so a hostess device can't be used to
-    // mutate a future or past reservation.
+    // Host permissions: can edit all fields on today's reservations.
+    // Status changes are restricted to the allowed set (arrived/no_show/confirmed).
     if (host) {
-      const keys = Object.keys(patchData)
-      if (keys.length !== 1 || keys[0] !== 'status') {
-        return NextResponse.json({ error: 'מארחת יכולה לעדכן רק סטטוס הגעה' }, { status: 403 })
-      }
-      if (!patchData.status || !HOST_ALLOWED_STATUSES.has(patchData.status)) {
+      if (patchData.status && !HOST_ALLOWED_STATUSES.has(patchData.status)) {
         return NextResponse.json({ error: 'סטטוס לא מותר למארחת' }, { status: 403 })
       }
       const existing = await getReservation(params.id)

@@ -15,6 +15,7 @@ import {
   HEBREW_DAYS,
   HEBREW_MONTHS,
   Reservation,
+  ReservationDetailModal,
   ReservationRow,
   Status,
   computeShiftDateStr,
@@ -35,11 +36,7 @@ export default function MarkedDashboard() {
   // Arrived reservations can still be assigned a table here (the hostess
   // sometimes taps "הגיע" before deciding where to seat them).
   const [pickerFor, setPickerFor] = useState<Reservation | null>(null)
-  // Only one row expanded at a time (consistent with /host). Marked rows
-  // don't transition back to confirmed via this page's buttons except via
-  // the undo-to-confirmed flow — that takes them out of the list entirely
-  // so no special auto-collapse effect is needed here.
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editingReservation, setEditingReservation] = useState<Enriched | null>(null)
 
   async function load() {
     try {
@@ -219,21 +216,28 @@ export default function MarkedDashboard() {
                       onArrived={() => setStatus(r.id, 'arrived')}
                       onNoShow={() => setStatus(r.id, 'no_show')}
                       onUndo={() => setStatus(r.id, 'confirmed')}
-                      onAssign={() => setPickerFor(r)}
-                      isExpanded={expandedId === r.id}
-                      onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                      onEdit={() => setEditingReservation(r)}
                     />
                   </div>
                 )
               })}
             </div>
             <p className="text-[11px] text-cayo-burgundy/40 text-center mt-3 font-bold">
-              הקישי על הזמנה ואז &quot;ביטול סימון&quot; כדי להחזיר אותה לרשימה הראשית
+              הקישי להצגת פרטים · ביטול סימון מחזיר לרשימה הראשית
             </p>
           </>
         )}
       </main>
       <UndoToast state={undoToast} onClose={() => setUndoToast(null)} />
+      {editingReservation && (
+        <ReservationDetailModal
+          reservation={editingReservation}
+          onClose={() => setEditingReservation(null)}
+          onSaved={(updates) => setItems(prev => prev.map(r => r.id === editingReservation.id ? { ...r, ...updates } : r))}
+          onAssign={() => { setPickerFor(editingReservation); setEditingReservation(null) }}
+          onUndo={() => setStatus(editingReservation.id, 'confirmed')}
+        />
+      )}
       {pickerFor && (
         <TablePickerModal
           open={true}

@@ -3,7 +3,7 @@
 // Shared types, helpers, and the ReservationRow component used by the
 // on-shift hostess surfaces: /host (active queue) and /host/marked
 // (reservations already marked arrived / no-show).
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 export type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 export type Area = 'bar' | 'table'
@@ -269,43 +269,22 @@ export function enrich(
   })
 }
 
-// Compact list row. Tap to expand (shows phone + notes). Swipe right to
-// reveal the two primary actions (arrived / no-show).
-//
-// `onAssign` is optional — when supplied, the expanded drawer renders an
-// assignment pill that opens the TablePickerModal. The pill is hidden on
-// reservations that are no_show / cancelled / completed (where a seating
-// decision no longer makes sense). We intentionally keep the pill inside
-// the expanded drawer (not the compact header) so the shift view stays
-// glanceable and dense.
+// Compact list row. Swipe right to reveal arrived/no-show actions.
+// Tap anywhere on the card to open the detail modal.
 export function ReservationRow({
   reservation: r,
   pending,
   onArrived,
   onNoShow,
   onUndo,
-  onAssign,
-  onQuickAssign,
-  isExpanded,
-  onToggleExpand,
+  onEdit,
 }: {
   reservation: Enriched
   pending: boolean
   onArrived: () => void
   onNoShow: () => void
   onUndo: () => void
-  onAssign?: () => void
-  // Optional: when supplied AND the reservation has a recommendation,
-  // the drawer shows a big one-tap "שבצי שולחן N" button that calls
-  // this with the recommended table's id. A small secondary button
-  // beside it opens the full picker via `onAssign` for overrides.
-  onQuickAssign?: (tableId: string) => void
-  // Controlled expand — parent tracks "which row is open" so that
-  // expanding one row auto-collapses any previously open sibling.
-  // The parent is also responsible for clearing this when the row's
-  // status transitions to arrived/no_show.
-  isExpanded: boolean
-  onToggleExpand: () => void
+  onEdit: () => void
 }) {
   const isLate = r.bucket === 'late'
   const isArrived = r.status === 'arrived'
@@ -317,6 +296,8 @@ export function ReservationRow({
   const [hasTransition, setHasTransition] = useState(true)
 
   const OPEN_OFFSET = 180
+  const justMarked = useRef(false)
+
   const drag = useRef({
     active: false,
     decided: 'idle',
@@ -386,59 +367,28 @@ export function ReservationRow({
 
   function handleCardClick() {
     if (drag.current.didMove) return
+    if (justMarked.current) return
     if (offset > 0) {
       setOffset(0)
       return
     }
-    onToggleExpand()
+    onEdit()
   }
 
   function triggerArrived(e: React.MouseEvent) {
     e.stopPropagation()
+    justMarked.current = true
+    setTimeout(() => { justMarked.current = false }, 500)
     setOffset(0)
     onArrived()
   }
   function triggerNoShow(e: React.MouseEvent) {
     e.stopPropagation()
+    justMarked.current = true
+    setTimeout(() => { justMarked.current = false }, 500)
     setOffset(0)
     onNoShow()
   }
-  function triggerUndo(e: React.MouseEvent) {
-    e.stopPropagation()
-    onUndo()
-  }
-  function triggerAssign(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (onAssign) onAssign()
-  }
-  function triggerQuickAssign(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (onQuickAssign && r.recommendedTable) onQuickAssign(r.recommendedTable.id)
-  }
-  // Combined "arrived + assign recommended table" — chains the two
-  // existing handlers. Only surfaced when the guest is likely here now
-  // (late / soon buckets). Both API calls fire; if either errors the
-  // individual handler's own load() fallback corrects state.
-  function triggerArriveAndAssign(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (onQuickAssign && r.recommendedTable) onQuickAssign(r.recommendedTable.id)
-    onArrived()
-  }
-
-  // The assignment pill is only meaningful while a seating decision is
-  // live — confirmed (upcoming/soon/late) or arrived. Once the guest is
-  // flagged no_show / cancelled / completed the pill disappears.
-  const canAssign = Boolean(onAssign) && (r.status === 'confirmed' || r.status === 'arrived')
-  const primaryTable =
-    r.tables.find(t => t.isPrimary) ?? (r.tables.length > 0 ? r.tables[0] : null)
-  const extraTablesCount = r.tables.length > 1 ? r.tables.length - 1 : 0
-  // "Smart shortcut" pill: we have a recommendation AND the parent wired
-  // a quick-assign handler AND the row is still unassigned. Otherwise
-  // fall back to the classic orange "שייך" pill that opens the picker.
-  const showQuickAssign = Boolean(
-    canAssign && !primaryTable && r.recommendedTable && onQuickAssign,
-  )
-
   const isVeryLate = isLate && r.lateMinutes >= 30
 
   const rowCls = isVeryLate
@@ -529,22 +479,6 @@ export function ReservationRow({
               </span>
               <span className="opacity-40" aria-hidden="true">·</span>
               <span>{AREA_LABEL[r.area]}</span>
-              {isLate && (
-                <>
-                  <span className="opacity-40" aria-hidden="true">·</span>
-                  <span className={`${isVeryLate ? 'text-cayo-red' : 'text-cayo-orange'} font-black`}>
-                    איחור {r.lateMinutes} דק׳
-                  </span>
-                </>
-              )}
-              {isSoon && !isLate && r.minutesFromNow > 0 && (
-                <>
-                  <span className="opacity-40" aria-hidden="true">·</span>
-                  <span className="text-cayo-orange">
-                    בעוד {r.minutesFromNow} דק׳
-                  </span>
-                </>
-              )}
               {isArrived && (
                 <>
                   <span className="opacity-40" aria-hidden="true">·</span>
@@ -560,173 +494,410 @@ export function ReservationRow({
             </div>
           </div>
 
-          {isLate && r.phone && (
-            // Direct-dial pill for late reservations — the single most
-            // time-sensitive action on the shift. Lives on the collapsed
-            // row so the hostess can tap without expanding. `tel:` links
-            // open the native dialer on mobile. stopPropagation so the
-            // card doesn't also expand.
-            <a
-              href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
-              onClick={e => e.stopPropagation()}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-black shrink-0 active:scale-95 transition-transform ${
-                isVeryLate ? 'bg-cayo-red text-white' : 'bg-cayo-orange text-white'
-              }`}
-              aria-label={`התקשרי ל-${r.name || 'הזמנה'}`}
-            >
-              <span className="text-base leading-none">📞</span>
-              <span>התקשרי</span>
-            </a>
-          )}
-
-          <span
-            className="text-cayo-burgundy/40 text-xs font-black px-1"
-            aria-hidden="true"
-          >
-            {isExpanded ? '▲' : '▼'}
-          </span>
         </div>
 
-        {isExpanded && (
-          <div className="px-4 pb-3 pt-1 border-t border-cayo-burgundy/10 space-y-2">
-            {canAssign && showQuickAssign && r.recommendedTable && (
-              // Split pill: big one-tap action on the right (primary CTA)
-              // and a small "אחר" escape hatch that opens the full picker
-              // when the suggestion isn't what the hostess wants.
-              //
-              // Bucket-aware primary:
-              //   late / soon  → "✓ הגיע · שולחן N" (guest is here now;
-              //                   chain arrive + assign in one tap)
-              //   upcoming     → "🪑 שבצי שולחן N" (pre-plan only; don't
-              //                   mark arrived before the guest walks in)
-              // Either way the "אחר" button opens the picker, which only
-              // assigns — so pre-plan-later-in-the-shift is still a thing
-              // the hostess can do for late/soon rows via the picker.
-              (() => {
-                const combine = r.bucket === 'late' || r.bucket === 'soon'
-                return (
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={combine ? triggerArriveAndAssign : triggerQuickAssign}
-                      disabled={pending}
-                      className={`flex-1 h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 text-white border-2 ${
-                        combine
-                          ? 'bg-cayo-tealDark border-cayo-tealDark'
-                          : 'bg-cayo-burgundy border-cayo-burgundy'
-                      }`}
-                      aria-label={
-                        combine
-                          ? `הגיע ושבצי לשולחן ${r.recommendedTable!.table_number}`
-                          : `שבצי שולחן ${r.recommendedTable!.table_number}`
-                      }
-                    >
-                      <span aria-hidden="true">{combine ? '✓' : '🪑'}</span>
-                      <span>
-                        {combine
-                          ? `הגיע · שולחן ${r.recommendedTable!.table_number}`
-                          : `שבצי שולחן ${r.recommendedTable!.table_number}`}
-                      </span>
-                    </button>
-                    <button
-                      onClick={triggerAssign}
-                      disabled={pending}
-                      className="w-16 h-11 rounded-xl font-black text-sm flex items-center justify-center active:scale-[0.98] transition-transform disabled:opacity-50 bg-cayo-burgundy/5 text-cayo-burgundy/80 border-2 border-cayo-burgundy/20"
-                      aria-label="בחרי שולחן אחר או שילוב"
-                    >
-                      אחר
-                    </button>
-                  </div>
-                )
-              })()
-            )}
-            {canAssign && !showQuickAssign && (
-              <button
-                onClick={triggerAssign}
-                disabled={pending}
-                className={`w-full h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 ${
-                  primaryTable
-                    ? 'bg-cayo-burgundy/10 text-cayo-burgundy border-2 border-cayo-burgundy/20'
-                    : 'bg-cayo-orange/15 text-cayo-orange border-2 border-cayo-orange/30'
-                }`}
-                aria-label={primaryTable ? 'שינוי שיוך שולחן' : 'שיוך שולחן'}
-              >
-                {primaryTable ? (
-                  <>
-                    <span>🪑</span>
-                    <span>
-                      שולחן {primaryTable.tableNumber}
-                      {extraTablesCount > 0 && (
-                        <span className="font-bold opacity-70"> +{extraTablesCount}</span>
-                      )}
-                    </span>
-                    <span className="opacity-50">·</span>
-                    <span className="text-xs opacity-80">עריכה</span>
-                  </>
-                ) : (
-                  <>
-                    <span>⚠</span>
-                    <span>ללא שולחן</span>
-                    <span className="opacity-50">·</span>
-                    <span className="text-xs opacity-80">שייך</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {(r.phone || r.notes) ? (
-              <>
-                {r.phone && (
-                  <a
-                    href={`tel:${r.phone}`}
-                    onClick={e => e.stopPropagation()}
-                    dir="ltr"
-                    className={`w-full h-11 rounded-xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform ${
-                      isVeryLate
-                        ? 'bg-cayo-red text-white'
-                        : isLate
-                        ? 'bg-cayo-orange text-white'
-                        : 'bg-cayo-burgundy text-white'
-                    }`}
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                      aria-hidden="true"
-                    >
-                      <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-                    </svg>
-                    <span>{r.phone}</span>
-                  </a>
-                )}
-                {r.notes && (
-                  <p className="text-sm text-cayo-burgundy/80 italic bg-cayo-burgundy/5 rounded-lg px-3 py-2 leading-snug">
-                    💬 {r.notes}
-                  </p>
-                )}
-              </>
-            ) : (
-              // Hide the "no extra details" fallback when the assignment
-              // pill is visible — the drawer isn't empty anymore.
-              !canAssign && (
-                <p className="text-xs text-cayo-burgundy/45 text-center py-1.5 font-bold">
-                  אין פרטים נוספים
-                </p>
-              )
-            )}
-
-            {isDone && (
-              <button
-                onClick={triggerUndo}
-                disabled={pending}
-                className="w-full h-10 rounded-xl border-2 border-cayo-burgundy/20 text-cayo-burgundy/70 font-bold text-xs hover:border-cayo-burgundy/50 disabled:opacity-50"
-              >
-                ↶ ביטול סימון
-              </button>
-            )}
-          </div>
-        )}
       </div>
+    </div>
+  )
+}
+
+// ─── Detail Modal ──────────────────────────────────────────────────────────────
+// Opens when the hostess taps a reservation row.
+// Shows all fields except arrival status, with edit support (admin only).
+export function ReservationDetailModal({
+  reservation: r,
+  onClose,
+  onSaved,
+  onAssign,
+  onUndo,
+  allTables,
+  allReservations,
+}: {
+  reservation: Enriched
+  onClose: () => void
+  onSaved: (updated: Partial<Reservation>) => void
+  onAssign?: () => void
+  onUndo?: () => void
+  allTables?: TableLite[]
+  allReservations?: Reservation[]
+}) {
+  const isLate = r.bucket === 'late'
+  const isVeryLate = isLate && r.lateMinutes >= 30
+  const isDone = r.status === 'arrived' || r.status === 'no_show'
+
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [name, setName] = useState(r.name)
+  const [guests, setGuests] = useState(r.guests)
+  const [area, setArea] = useState<Area>(r.area)
+  const [phone, setPhone] = useState(r.phone || '')
+  const [notes, setNotes] = useState(r.notes || '')
+
+
+  const [tablePickerOpen, setTablePickerOpen] = useState(false)
+  const [tableSaving, setTableSaving] = useState(false)
+  const [tableError, setTableError] = useState('')
+
+  const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+
+  const availableTables: TableLite[] = (allTables || []).filter(table => {
+    if (!(allReservations)) return true
+    return !allReservations.some(res => {
+      if (res.id === r.id) return false
+      if (res.date !== r.date) return false
+      if (!((['pending', 'confirmed', 'arrived'] as Status[]).includes(res.status))) return false
+      if (!res.tables.some(t => t.id === table.id)) return false
+      return Math.abs(toMins(res.time) - toMins(r.time)) < 120
+    })
+  }).sort((a, b) => a.table_number - b.table_number)
+
+  async function assignTableById(table: TableLite) {
+    setTableSaving(true)
+    setTableError('')
+    try {
+      const res = await fetch(`/api/reservations/${r.id}/tables`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableIds: [table.id], primaryTableId: table.id }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setTableError(data.error || 'שגיאה בשמירה')
+        return
+      }
+      const data = await res.json()
+      onSaved({ tables: data.tables || [] })
+      setTablePickerOpen(false)
+    } catch {
+      setTableError('שגיאה בחיבור')
+    } finally {
+      setTableSaving(false)
+    }
+  }
+
+  function cancelEdit() {
+    setEditing(false)
+    setSaveError('')
+    setName(r.name)
+    setGuests(r.guests)
+    setArea(r.area)
+    setPhone(r.phone || '')
+    setNotes(r.notes || '')
+  }
+
+  async function save() {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const res = await fetch(`/api/reservations/${r.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, guests, area, phone, notes }),
+      })
+      if (res.status === 403) {
+        setSaveError('שגיאת הרשאה')
+        return
+      }
+      if (!res.ok) {
+        setSaveError('שגיאה בשמירה, נסי שוב')
+        return
+      }
+      onSaved({ name, guests, area, phone, notes })
+      setEditing(false)
+    } catch {
+      setSaveError('אין חיבור לשרת')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const primaryTable = r.tables.find(t => t.isPrimary) ?? (r.tables.length > 0 ? r.tables[0] : null)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      dir="rtl"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className={`px-5 py-4 border-b-2 ${
+          isVeryLate ? 'border-cayo-red/30 bg-cayo-red/5'
+          : isLate ? 'border-cayo-orange/30 bg-cayo-orange/5'
+          : 'border-cayo-burgundy/10'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-cayo-burgundy leading-tight">
+                סיכום הזמנה
+              </h2>
+              {(() => {
+                const d = new Date(r.date + 'T12:00:00')
+                const day = HEBREW_DAYS[d.getDay()]
+                const date = `${d.getDate()} ${HEBREW_MONTHS[d.getMonth()]}`
+                return (
+                  <p className="text-xs font-black text-cayo-burgundy mt-0.5">
+                    יום {day}, {date}
+                  </p>
+                )
+              })()}
+            </div>
+            <button
+              onClick={onClose}
+              className="text-cayo-burgundy/40 hover:text-cayo-burgundy text-xl leading-none p-1 shrink-0"
+              aria-label="סגור"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div>
+          {/* Name */}
+          <div className="px-5 py-3 border-b-2 border-black/15">
+            <ModalField label="שם">
+              <p className="text-sm font-black text-cayo-burgundy">{r.name || '—'}</p>
+            </ModalField>
+          </div>
+
+          {/* Guests + Table */}
+          <div className="px-5 py-3 grid grid-cols-2 gap-3 border-b-2 border-black/15">
+            <ModalField label="סועדים">
+              <GuestScrollPicker value={guests} onChange={setGuests} />
+            </ModalField>
+
+            <ModalField label="שולחן">
+              <div>
+                <button
+                  onClick={e => { e.stopPropagation(); setTablePickerOpen(o => !o); setTableError('') }}
+                  className="text-sm font-black text-cayo-burgundy underline decoration-dotted"
+                >
+                  {primaryTable
+                    ? `${primaryTable.tableNumber}${r.tables.length > 1 ? ` +${r.tables.length - 1}` : ''}`
+                    : '—'}
+                </button>
+                {tablePickerOpen && (
+                  <div className="mt-2">
+                    {availableTables.length === 0 ? (
+                      <p className="text-xs font-bold text-cayo-burgundy/50">אין שולחנות פנויים</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableTables.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={e => { e.stopPropagation(); assignTableById(t) }}
+                            disabled={tableSaving}
+                            className="w-9 h-9 rounded-lg border-2 border-cayo-burgundy/20 text-sm font-black text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white transition-colors disabled:opacity-50"
+                          >
+                            {t.table_number}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {tableError && (
+                      <p className="text-xs font-bold text-cayo-red mt-1.5">{tableError}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </ModalField>
+          </div>
+
+          {/* Time + Phone */}
+          <div className="px-5 py-3 grid grid-cols-2 gap-3 border-b-2 border-black/15">
+            <ModalField label="שעה">
+              <p className={`text-sm font-black ${isVeryLate ? 'text-cayo-red' : isLate ? 'text-cayo-orange' : 'text-cayo-burgundy'}`}>
+                {r.time}
+              </p>
+            </ModalField>
+
+            <ModalField label="טלפון">
+              {r.phone ? (
+                <a
+                  href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
+                  className="text-sm font-black text-cayo-burgundy underline"
+                  dir="ltr"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {r.phone}
+                </a>
+              ) : (
+                <p className="text-sm font-black text-cayo-burgundy/40">—</p>
+              )}
+            </ModalField>
+          </div>
+
+          {/* Notes */}
+          <div className="px-5 py-3 border-b-2 border-black/15">
+            <ModalField label="בקשת לקוח">
+              <p className="text-sm font-black text-cayo-burgundy/80">{r.notes || '—'}</p>
+            </ModalField>
+          </div>
+
+          {/* Internal notes — staff only, not shown to customers */}
+          <div className="px-5 py-3 border-b-2 border-black/15">
+            <ModalField label="הערות למסעדה">
+              <p className="text-sm font-black text-cayo-burgundy/80">—</p>
+            </ModalField>
+          </div>
+
+          {saveError && (
+            <div className="px-5 py-2">
+              <p className="text-xs font-bold text-cayo-red text-center">{saveError}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 pb-5 pt-3 flex flex-col gap-2">
+          <div className="flex justify-end">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="h-11 px-6 rounded-xl bg-cayo-tealDark text-white font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50"
+            >
+              {saving ? 'שומר...' : 'שמור שינויים'}
+            </button>
+          </div>
+          {onUndo && !editing && (
+            <button
+              onClick={() => { onUndo(); onClose() }}
+              className="w-full h-10 rounded-xl border-2 border-cayo-burgundy/15 text-cayo-burgundy/60 font-bold text-xs hover:border-cayo-burgundy/40 active:scale-[0.98] transition-transform"
+            >
+              ↶ ביטול סימון
+            </button>
+          )}
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+function GuestScrollPicker({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (n: number) => void
+}) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const ITEM_H = 36
+  const MIN = 1
+  const MAX = 12
+
+  // Scroll to the current value on mount without animation
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = (value - MIN) * ITEM_H
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function handleScroll() {
+    if (!listRef.current) return
+    const idx = Math.round(listRef.current.scrollTop / ITEM_H)
+    const next = Math.min(MAX, Math.max(MIN, idx + MIN))
+    if (next !== value) onChange(next)
+  }
+
+  function nudge(dir: -1 | 1) {
+    const next = Math.min(MAX, Math.max(MIN, value + dir))
+    onChange(next)
+    if (listRef.current) {
+      listRef.current.scrollTo({ top: (next - MIN) * ITEM_H, behavior: 'smooth' })
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+      {/* Up */}
+      <button
+        onClick={() => nudge(-1)}
+        className="w-6 h-6 flex items-center justify-center text-cayo-burgundy/50 hover:text-cayo-burgundy active:scale-90 transition-all"
+        aria-label="פחות"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 8L6 4L10 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {/* Drum roll */}
+      <div className="relative" style={{ width: 40, height: ITEM_H * 3 }}>
+        {/* Highlight the center slot */}
+        <div
+          className="absolute inset-x-0 pointer-events-none bg-cayo-burgundy/8 rounded-lg"
+          style={{ top: ITEM_H, height: ITEM_H }}
+        />
+        {/* Top + bottom fade */}
+        <div
+          className="absolute inset-x-0 top-0 pointer-events-none z-10 h-9"
+          style={{ background: 'linear-gradient(to bottom, white, transparent)' }}
+        />
+        <div
+          className="absolute inset-x-0 bottom-0 pointer-events-none z-10 h-9"
+          style={{ background: 'linear-gradient(to top, white, transparent)' }}
+        />
+
+        <div
+          ref={listRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-scroll"
+          style={{
+            scrollSnapType: 'y mandatory',
+            scrollbarWidth: 'none',
+            paddingTop: ITEM_H,
+            paddingBottom: ITEM_H,
+          }}
+        >
+          {Array.from({ length: MAX - MIN + 1 }, (_, i) => i + MIN).map(n => (
+            <div
+              key={n}
+              style={{ scrollSnapAlign: 'center', height: ITEM_H }}
+              className={`flex items-center justify-center cursor-pointer select-none transition-all duration-150 ${
+                value === n
+                  ? 'text-cayo-burgundy font-black text-lg'
+                  : 'text-cayo-burgundy/25 font-bold text-sm'
+              }`}
+              onClick={() => {
+                onChange(n)
+                if (listRef.current) {
+                  listRef.current.scrollTo({ top: (n - MIN) * ITEM_H, behavior: 'smooth' })
+                }
+              }}
+            >
+              {n}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Down */}
+      <button
+        onClick={() => nudge(1)}
+        className="w-6 h-6 flex items-center justify-center text-cayo-burgundy/50 hover:text-cayo-burgundy active:scale-90 transition-all"
+        aria-label="יותר"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 4L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-cayo-burgundy/50 uppercase tracking-wider mb-1">
+        {label}
+      </p>
+      {children}
     </div>
   )
 }
