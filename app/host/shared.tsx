@@ -453,7 +453,7 @@ export function ReservationRow({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onClick={handleCardClick}
-        className="relative bg-inherit select-none cursor-pointer"
+        className="relative bg-white select-none cursor-pointer"
         style={{
           transform: `translateX(${offset}px)`,
           transition: hasTransition ? 'transform 220ms ease-out' : 'none',
