@@ -26,6 +26,7 @@ export interface Reservation {
   terms: boolean
   status: ReservationStatus
   notes?: string
+  internalNotes?: string
   createdAt: string
   updatedAt: string
   // Populated by listReservations/getReservation. May be empty if
@@ -46,6 +47,7 @@ interface Row {
   terms: boolean
   status: ReservationStatus
   notes: string | null
+  internal_notes: string | null
   created_at: string
   updated_at: string
 }
@@ -63,6 +65,7 @@ function rowToReservation(row: Row, tables: AssignedTable[] = []): Reservation {
     terms: row.terms,
     status: row.status,
     notes: row.notes ?? undefined,
+    internalNotes: row.internal_notes ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tables,
@@ -153,6 +156,7 @@ export async function updateReservation(
   if (patch.terms !== undefined) patchRow.terms = patch.terms
   if (patch.status !== undefined) patchRow.status = patch.status
   if (patch.notes !== undefined) patchRow.notes = patch.notes || null
+  if (patch.internalNotes !== undefined) patchRow.internal_notes = patch.internalNotes || null
 
   let query = sb
     .from(TABLE)

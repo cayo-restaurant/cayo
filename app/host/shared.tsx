@@ -4,6 +4,7 @@
 // on-shift hostess surfaces: /host (active queue) and /host/marked
 // (reservations already marked arrived / no-show).
 import React, { useEffect, useRef, useState } from 'react'
+import { VALID_TIMES } from '@/lib/capacity'
 
 export type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 export type Area = 'bar' | 'table'
@@ -46,6 +47,7 @@ export interface Reservation {
   email: string
   status: Status
   notes?: string
+  internalNotes?: string
   createdAt: string
   updatedAt: string
   tables: AssignedTable[]
@@ -532,7 +534,9 @@ export function ReservationDetailModal({
   const [guests, setGuests] = useState(r.guests)
   const [area, setArea] = useState<Area>(r.area)
   const [phone, setPhone] = useState(r.phone || '')
+  const [time, setTime] = useState(r.time)
   const [notes, setNotes] = useState(r.notes || '')
+  const [internalNotes, setInternalNotes] = useState(r.internalNotes || '')
 
 
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
@@ -582,8 +586,10 @@ export function ReservationDetailModal({
     setName(r.name)
     setGuests(r.guests)
     setArea(r.area)
+    setTime(r.time)
     setPhone(r.phone || '')
     setNotes(r.notes || '')
+    setInternalNotes(r.internalNotes || '')
   }
 
   async function save() {
@@ -593,7 +599,7 @@ export function ReservationDetailModal({
       const res = await fetch(`/api/reservations/${r.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, guests, area, phone, notes }),
+        body: JSON.stringify({ name, guests, area, time, phone, notes, internalNotes }),
       })
       if (res.status === 403) {
         setSaveError('שגיאת הרשאה')
@@ -603,7 +609,7 @@ export function ReservationDetailModal({
         setSaveError('שגיאה בשמירה, נסי שוב')
         return
       }
-      onSaved({ name, guests, area, phone, notes })
+      onSaved({ name, guests, area, time, phone, notes, internalNotes })
       setEditing(false)
     } catch {
       setSaveError('אין חיבור לשרת')
@@ -711,9 +717,16 @@ export function ReservationDetailModal({
           {/* Time + Phone */}
           <div className="px-5 py-3 grid grid-cols-2 gap-3 border-b-2 border-black/15">
             <ModalField label="שעה">
-              <p className={`text-sm font-black ${isVeryLate ? 'text-cayo-red' : isLate ? 'text-cayo-orange' : 'text-cayo-burgundy'}`}>
-                {r.time}
-              </p>
+              <select
+                value={time}
+                onChange={e => setTime(e.target.value)}
+                className={`text-sm font-black bg-transparent border-none outline-none cursor-pointer ${isVeryLate ? 'text-cayo-red' : isLate ? 'text-cayo-orange' : 'text-cayo-burgundy'}`}
+                dir="ltr"
+              >
+                {VALID_TIMES.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
             </ModalField>
 
             <ModalField label="טלפון">
@@ -742,7 +755,13 @@ export function ReservationDetailModal({
           {/* Internal notes — staff only, not shown to customers */}
           <div className="px-5 py-3 border-b-2 border-black/15">
             <ModalField label="הערות למסעדה">
-              <p className="text-sm font-black text-cayo-burgundy/80">—</p>
+              <textarea
+                value={internalNotes}
+                onChange={e => setInternalNotes(e.target.value)}
+                placeholder="הערות פנימיות..."
+                rows={2}
+                className="w-full text-sm font-black text-cayo-burgundy/80 bg-transparent resize-none outline-none placeholder:text-cayo-burgundy/25"
+              />
             </ModalField>
           </div>
 
@@ -779,7 +798,7 @@ export function ReservationDetailModal({
   )
 }
 
-function GuestScrollPicker({
+export function GuestScrollPicker({
   value,
   onChange,
 }: {
@@ -891,7 +910,7 @@ function GuestScrollPicker({
   )
 }
 
-function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
+export function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <p className="text-[10px] font-bold text-cayo-burgundy/50 uppercase tracking-wider mb-1">

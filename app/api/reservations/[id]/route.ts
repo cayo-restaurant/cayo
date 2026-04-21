@@ -23,6 +23,7 @@ const patchSchema = z.object({
   phone: z.string().refine(v => v === '' || /^05[0-9]{8}$/.test(v), { message: 'מספר טלפון לא תקין' }).optional(),
   email: z.string().refine(v => v === '' || z.string().email().safeParse(v).success, { message: 'אימייל לא תקין' }).optional(),
   notes: z.string().max(500).optional(),
+  internalNotes: z.string().max(1000).optional(),
   expectedUpdatedAt: z.string().optional(),
 })
 

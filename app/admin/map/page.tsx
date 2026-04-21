@@ -571,14 +571,6 @@ export default function AdminMapPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="bg-cayo-orange hover:bg-cayo-orange/90 transition-colors rounded-lg px-3 py-1.5 text-sm font-bold opacity-50 cursor-not-allowed"
-              disabled
-              title="יתווסף בשלב מאוחר יותר"
-            >
-              Walk-in
-            </button>
             {editMode ? (
               <button
                 type="button"
@@ -699,22 +691,6 @@ export default function AdminMapPage() {
           )}
         </div>
 
-        {!editMode && (
-          <div className="mt-6 flex items-center justify-center gap-6 text-sm text-cayo-burgundy/60">
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-full bg-cayo-teal" />
-              <span>פנוי</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-full bg-cayo-orange" />
-              <span>מוזמן</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-full bg-cayo-red" />
-              <span>תפוס</span>
-            </div>
-          </div>
-        )}
 
         {editMode && (
           <p className="mt-4 text-center text-xs text-cayo-burgundy/50">

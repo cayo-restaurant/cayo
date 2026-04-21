@@ -33,6 +33,9 @@ import {
   computeShiftDateStr,
   enrich,
   shiftAdjustedDate,
+  toDateString,
+  GuestScrollPicker,
+  ModalField,
 } from './shared'
 import { UndoToast, UndoToastState } from '../../components/UndoToast'
 
@@ -61,6 +64,13 @@ export default function HostDashboard() {
   const [tables, setTables] = useState<TableLite[]>([])
   // Detail modal — when set, shows the full reservation detail/edit modal.
   const [editingReservation, setEditingReservation] = useState<Enriched | null>(null)
+  const [showNewReservation, setShowNewReservation] = useState(false)
+  // Day navigation: 0 = today's shift, negative = past days, positive = future
+  const [dayOffset, setDayOffset] = useState(0)
+  const [dayPickerOpen, setDayPickerOpen] = useState(false)
+  // Calendar display month/year (independent of selected day so user can browse)
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
 
   async function load() {
     try {
@@ -78,7 +88,9 @@ export default function HostDashboard() {
       // host-only request, but if the same browser also carries an admin cookie
       // the server returns the full dataset. Filter on the client too so the
       // hostess view is always scoped to "today" regardless of which cookie won.
-      const shiftDateStr = computeShiftDateStr(new Date())
+      const baseShiftDate = shiftAdjustedDate(new Date())
+      baseShiftDate.setDate(baseShiftDate.getDate() + dayOffset)
+      const shiftDateStr = toDateString(baseShiftDate)
       const todays = (data.reservations || []).filter(
         (r: Reservation) => r.date === shiftDateStr
       )
@@ -92,6 +104,7 @@ export default function HostDashboard() {
   }
 
   useEffect(() => {
+    setLoading(true)
     load()
     const id = setInterval(() => {
       // Pause the periodic refresh while the picker is open so an in-flight
@@ -102,7 +115,7 @@ export default function HostDashboard() {
     }, 60_000)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickerFor])
+  }, [pickerFor, dayOffset])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000)
@@ -267,27 +280,126 @@ export default function HostDashboard() {
     .filter(r => servedStatuses.includes(r.status))
     .reduce((sum, r) => sum + r.guests, 0)
 
-  // Header label uses the shift day, not the calendar day.
+  // Header label uses the shift day + dayOffset.
   const shiftDate = shiftAdjustedDate(new Date(now))
-  const todayLabel = `יום ${HEBREW_DAYS[shiftDate.getDay()]}, ${shiftDate.getDate()} ${HEBREW_MONTHS[shiftDate.getMonth()]}`
+  const selectedDate = new Date(shiftDate)
+  selectedDate.setDate(selectedDate.getDate() + dayOffset)
+  const todayLabel = `יום ${HEBREW_DAYS[selectedDate.getDay()]}, ${selectedDate.getDate()} ${HEBREW_MONTHS[selectedDate.getMonth()]}`
+  const isToday = dayOffset === 0
 
   return (
     <div className="min-h-screen bg-white pb-12">
       {/* Header */}
       <header className="border-b-2 border-cayo-burgundy/10 bg-white sticky top-0 z-30">
         <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
+          {/* Day picker box — top-left */}
+          <div className="relative">
+            <button
+              onClick={() => setDayPickerOpen(o => !o)}
+              className="flex flex-col items-start px-3 py-2 rounded-xl border-2 border-cayo-burgundy/15 hover:border-cayo-burgundy/40 active:scale-[0.98] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60 min-w-[130px]"
+            >
+              <span className="text-[10px] font-bold text-cayo-burgundy/60 uppercase tracking-wider leading-tight">
+                {isToday ? 'היום' : 'תאריך'}
+              </span>
+              <span className="text-sm font-black text-cayo-burgundy leading-snug">{todayLabel}</span>
+            </button>
+            {dayPickerOpen && (() => {
+              // Build calendar grid for calMonth/calYear
+              const firstDay = new Date(calYear, calMonth, 1)
+              // In Israel Sunday=0 is first day of week
+              const startDow = firstDay.getDay() // 0=Sun
+              const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+              // Today's shift date for "today" highlight
+              const todayShift = shiftAdjustedDate(new Date())
+              const todayStr = toDateString(todayShift)
+              // Currently selected date
+              const selDate = new Date(shiftDate)
+              selDate.setDate(selDate.getDate() + dayOffset)
+              const selStr = toDateString(selDate)
+
+              const cells: (number | null)[] = []
+              for (let i = 0; i < startDow; i++) cells.push(null)
+              for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+              // pad to full rows
+              while (cells.length % 7 !== 0) cells.push(null)
+
+              const DAY_LABELS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']
+
+              return (
+                <div className="absolute top-full mt-2 right-0 bg-white border-2 border-cayo-burgundy/15 rounded-2xl shadow-lg z-50 p-3 w-[260px]">
+                  {/* Month navigation */}
+                  <div className="flex items-center justify-between mb-3">
+                    <button
+                      onClick={() => {
+                        if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) }
+                        else setCalMonth(m => m - 1)
+                      }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg text-cayo-burgundy hover:bg-cayo-burgundy/8 font-black text-base transition"
+                      aria-label="חודש קדימה"
+                    >›</button>
+                    <span className="text-sm font-black text-cayo-burgundy">
+                      {HEBREW_MONTHS[calMonth]} {calYear}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) }
+                        else setCalMonth(m => m + 1)
+                      }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg text-cayo-burgundy hover:bg-cayo-burgundy/8 font-black text-base transition"
+                      aria-label="חודש אחורה"
+                    >‹</button>
+                  </div>
+                  {/* Day-of-week headers */}
+                  <div className="grid grid-cols-7 mb-1">
+                    {DAY_LABELS.map(d => (
+                      <div key={d} className="text-center text-[10px] font-bold text-cayo-burgundy/40 py-0.5">{d}</div>
+                    ))}
+                  </div>
+                  {/* Date cells */}
+                  <div className="grid grid-cols-7 gap-y-0.5">
+                    {cells.map((day, i) => {
+                      if (!day) return <div key={i} />
+                      const dateStr = toDateString(new Date(calYear, calMonth, day))
+                      const isSelected = dateStr === selStr
+                      const isTodayCell = dateStr === todayStr
+                      // Compute offset from shift base for this cell
+                      const cellDate = new Date(calYear, calMonth, day)
+                      const diffMs = cellDate.getTime() - new Date(todayShift.getFullYear(), todayShift.getMonth(), todayShift.getDate()).getTime()
+                      const diffDays = Math.round(diffMs / 86400000)
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => { setDayOffset(diffDays); setDayPickerOpen(false) }}
+                          className={`h-8 w-full rounded-lg text-sm font-bold transition relative
+                            ${isSelected
+                              ? 'bg-cayo-burgundy text-white'
+                              : isTodayCell
+                              ? 'text-cayo-burgundy border-2 border-cayo-burgundy/40 hover:bg-cayo-burgundy/8'
+                              : 'text-cayo-burgundy hover:bg-cayo-burgundy/8'}`}
+                        >
+                          {day}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
           <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-lg font-black text-cayo-burgundy leading-tight text-end">משמרת</h1>
+            </div>
             <div className="w-[60px] overflow-hidden">
               <Image src={cayoLogo} alt="CAYO" className="w-full h-auto scale-[1.35]" priority />
             </div>
-            <div>
-              <h1 className="text-lg font-black text-cayo-burgundy leading-tight">משמרת</h1>
-              <p className="text-xs text-cayo-burgundy/80 leading-tight">{todayLabel}</p>
-            </div>
           </div>
+        </div>
+        {/* Logout row */}
+        <div className="max-w-3xl mx-auto px-5 pb-2 flex justify-start">
           <button
             onClick={logout}
-            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-sm font-bold text-cayo-burgundy hover:text-cayo-burgundy px-4 py-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60 focus-visible:ring-offset-2"
+            className="text-xs font-bold text-cayo-burgundy/60 hover:text-cayo-burgundy transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60 focus-visible:ring-offset-2 py-1"
           >
             יציאה
           </button>
@@ -326,6 +438,18 @@ export default function HostDashboard() {
             {error}
           </div>
         )}
+
+        {/* Add reservation button */}
+        <div className="flex justify-start mb-3">
+          <button
+            onClick={() => setShowNewReservation(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-cayo-burgundy/20 text-cayo-burgundy font-black text-sm hover:border-cayo-burgundy/50 hover:bg-cayo-burgundy/5 active:scale-[0.97] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60"
+            aria-label="הוסף הזמנה"
+          >
+            <span className="text-lg leading-none">+</span>
+            <span>הזמנה חדשה</span>
+          </button>
+        </div>
 
         {loading ? (
           <p className="text-center text-cayo-burgundy/50 py-16 font-bold">טוען...</p>
@@ -396,9 +520,215 @@ export default function HostDashboard() {
           allReservations={items}
         />
       )}
+      {showNewReservation && (
+        <NewReservationModal
+          dateStr={toDateString(selectedDate)}
+          dateLabel={todayLabel}
+          allTables={tables}
+          onClose={() => setShowNewReservation(false)}
+          onCreated={() => { setShowNewReservation(false); load() }}
+        />
+      )}
     </div>
   )
 }
+
+const VALID_TIMES_HOST = (() => {
+  const out: string[] = []
+  for (let h = 19; h <= 22; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      if (h === 22 && m > 0) break
+      out.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`)
+    }
+  }
+  return out
+})()
+
+function NewReservationModal({
+  dateStr,
+  dateLabel,
+  allTables,
+  onClose,
+  onCreated,
+}: {
+  dateStr: string
+  dateLabel: string
+  allTables: TableLite[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [name, setName] = useState('')
+  const [time, setTime] = useState(VALID_TIMES_HOST[0])
+  const [guests, setGuests] = useState(2)
+  const [phone, setPhone] = useState('')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [tablePickerOpen, setTablePickerOpen] = useState(false)
+  const [selectedTable, setSelectedTable] = useState<TableLite | null>(null)
+  const [tableSaving, setTableSaving] = useState(false)
+  const [tableError, setTableError] = useState('')
+
+  async function submit() {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const area: 'bar' | 'table' = selectedTable ? selectedTable.area : 'table'
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() || 'אורח/ת', date: dateStr, time, area, guests, phone: phone.trim(), email: '', terms: true, notes }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setSaveError(data.error || 'שגיאה בשמירה'); return }
+      if (selectedTable && data.id) {
+        setTableSaving(true)
+        await fetch(`/api/reservations/${data.id}/tables`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tableIds: [selectedTable.id], primaryTableId: selectedTable.id }),
+        })
+        setTableSaving(false)
+      }
+      onCreated()
+    } catch {
+      setSaveError('שגיאה בחיבור')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      dir="rtl"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 border-b-2 border-cayo-burgundy/10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-cayo-burgundy leading-tight">הזמנה חדשה</h2>
+              <p className="text-xs font-black text-cayo-burgundy mt-0.5">{dateLabel}</p>
+            </div>
+            <button onClick={onClose} className="text-cayo-burgundy/40 hover:text-cayo-burgundy text-xl leading-none p-1 shrink-0" aria-label="סגור">✕</button>
+          </div>
+        </div>
+
+        {/* Name */}
+        <div className="px-5 py-3 border-b-2 border-black/15">
+          <ModalField label="שם">
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="אורח/ת"
+              className="w-full text-sm font-black text-cayo-burgundy bg-transparent border-b border-cayo-burgundy/20 pb-0.5 focus:outline-none focus:border-cayo-burgundy/60 placeholder:text-cayo-burgundy/30"
+            />
+          </ModalField>
+        </div>
+
+        {/* Guests + Table */}
+        <div className="px-5 py-3 grid grid-cols-2 gap-3 border-b-2 border-black/15">
+          <ModalField label="סועדים">
+            <GuestScrollPicker value={guests} onChange={setGuests} />
+          </ModalField>
+          <ModalField label="שולחן">
+            <div>
+              <button
+                onClick={e => { e.stopPropagation(); setTablePickerOpen(o => !o); setTableError('') }}
+                className="text-sm font-black text-cayo-burgundy underline decoration-dotted"
+              >
+                {selectedTable ? `${selectedTable.table_number}` : '—'}
+              </button>
+              {tablePickerOpen && (
+                <div className="mt-2">
+                  {allTables.length === 0 ? (
+                    <p className="text-xs font-bold text-cayo-burgundy/50">אין שולחנות</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {allTables.sort((a, b) => a.table_number - b.table_number).map(t => (
+                        <button
+                          key={t.id}
+                          onClick={e => { e.stopPropagation(); setSelectedTable(t); setTablePickerOpen(false) }}
+                          className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors
+                            ${selectedTable?.id === t.id
+                              ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                              : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
+                        >
+                          {t.table_number}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {tableError && <p className="text-xs font-bold text-cayo-red mt-1.5">{tableError}</p>}
+                </div>
+              )}
+            </div>
+          </ModalField>
+        </div>
+
+        {/* Time + Phone */}
+        <div className="px-5 py-3 grid grid-cols-2 gap-3 border-b-2 border-black/15">
+          <ModalField label="שעה">
+            <select
+              value={time}
+              onChange={e => setTime(e.target.value)}
+              className="text-sm font-black text-cayo-burgundy bg-transparent border-b border-cayo-burgundy/20 pb-0.5 focus:outline-none focus:border-cayo-burgundy/60 w-full"
+            >
+              {VALID_TIMES_HOST.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </ModalField>
+          <ModalField label="טלפון">
+            <input
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="05X-XXXXXXX"
+              dir="ltr"
+              className="w-full text-sm font-black text-cayo-burgundy bg-transparent border-b border-cayo-burgundy/20 pb-0.5 focus:outline-none focus:border-cayo-burgundy/60 placeholder:text-cayo-burgundy/30"
+            />
+          </ModalField>
+        </div>
+
+        {/* Notes */}
+        <div className="px-5 py-3 border-b-2 border-black/15">
+          <ModalField label="בקשת לקוח">
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="בקשות מיוחדות..."
+              className="w-full text-sm font-black text-cayo-burgundy bg-transparent border-b border-cayo-burgundy/20 pb-0.5 focus:outline-none focus:border-cayo-burgundy/60 placeholder:text-cayo-burgundy/30 resize-none"
+            />
+          </ModalField>
+        </div>
+
+        {saveError && (
+          <div className="px-5 py-2">
+            <p className="text-xs font-bold text-cayo-red text-center">{saveError}</p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-5 pb-5 pt-3 flex justify-end">
+          <button
+            onClick={submit}
+            disabled={saving || tableSaving}
+            className="h-11 px-6 rounded-xl bg-cayo-tealDark text-white font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50"
+          >
+            {saving || tableSaving ? 'שומר...' : 'שמור הזמנה'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
