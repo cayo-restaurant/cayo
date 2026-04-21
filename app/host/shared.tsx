@@ -480,7 +480,11 @@ export function ReservationRow({
                 {r.guests} {r.guests === 1 ? 'סועד' : 'סועדים'}
               </span>
               <span className="opacity-40" aria-hidden="true">·</span>
-              <span>{AREA_LABEL[r.area]}</span>
+              <span>
+                {r.tables.length > 0
+                  ? `${AREA_LABEL[r.area]} ${r.tables.map(t => t.tableNumber).sort((a, b) => a - b).join(', ')}`
+                  : AREA_LABEL[r.area]}
+              </span>
               {isArrived && (
                 <>
                   <span className="opacity-40" aria-hidden="true">·</span>
@@ -542,6 +546,11 @@ export function ReservationDetailModal({
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [tableSaving, setTableSaving] = useState(false)
   const [tableError, setTableError] = useState('')
+  // Multi-table selection — initialised from the current assignment so the
+  // hostess sees what's already booked and can add / remove tables.
+  const [selectedTableIds, setSelectedTableIds] = useState<Set<string>>(
+    () => new Set(r.tables.map(t => t.id))
+  )
 
   const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
@@ -556,22 +565,39 @@ export function ReservationDetailModal({
     })
   }).sort((a, b) => a.table_number - b.table_number)
 
-  async function assignTableById(table: TableLite) {
+  // Combined capacity of currently-selected tables (from availableTables or
+  // from the existing assignment if the table is no longer in availableTables).
+  const selectedCapacity =
+    availableTables
+      .filter(t => selectedTableIds.has(t.id))
+      .reduce((s, t) => s + t.capacity_max, 0) +
+    r.tables
+      .filter(t => !availableTables.some(at => at.id === t.id) && selectedTableIds.has(t.id))
+      .reduce((s, t) => s + t.capacityMax, 0)
+  const capacityOk = selectedTableIds.size === 0 || selectedCapacity >= guests
+
+  async function saveTableAssignment() {
+    const ids = [...selectedTableIds]
     setTableSaving(true)
     setTableError('')
     try {
-      const res = await fetch(`/api/reservations/${r.id}/tables`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableIds: [table.id], primaryTableId: table.id }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setTableError(data.error || 'שגיאה בשמירה')
-        return
+      if (ids.length === 0) {
+        await fetch(`/api/reservations/${r.id}/tables`, { method: 'DELETE' })
+        onSaved({ tables: [] })
+      } else {
+        const res = await fetch(`/api/reservations/${r.id}/tables`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tableIds: ids, primaryTableId: ids[0] }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setTableError(data.error || 'שגיאה בשמירה')
+          return
+        }
+        const data = await res.json()
+        onSaved({ tables: data.tables || [] })
       }
-      const data = await res.json()
-      onSaved({ tables: data.tables || [] })
       setTablePickerOpen(false)
     } catch {
       setTableError('שגיאה בחיבור')
@@ -683,8 +709,8 @@ export function ReservationDetailModal({
                   onClick={e => { e.stopPropagation(); setTablePickerOpen(o => !o); setTableError('') }}
                   className="text-sm font-black text-cayo-burgundy underline decoration-dotted"
                 >
-                  {primaryTable
-                    ? `${primaryTable.tableNumber}${r.tables.length > 1 ? ` +${r.tables.length - 1}` : ''}`
+                  {r.tables.length > 0
+                    ? r.tables.map(t => t.tableNumber).sort((a, b) => a - b).join(', ')
                     : '—'}
                 </button>
                 {tablePickerOpen && (
@@ -692,18 +718,51 @@ export function ReservationDetailModal({
                     {availableTables.length === 0 ? (
                       <p className="text-xs font-bold text-cayo-burgundy/50">אין שולחנות פנויים</p>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {availableTables.map(t => (
+                      <>
+                        <div className="flex flex-wrap gap-1.5">
+                          {availableTables.map(t => {
+                            const isSel = selectedTableIds.has(t.id)
+                            return (
+                              <button
+                                key={t.id}
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  setSelectedTableIds(prev => {
+                                    const next = new Set(prev)
+                                    if (next.has(t.id)) next.delete(t.id)
+                                    else next.add(t.id)
+                                    return next
+                                  })
+                                }}
+                                disabled={tableSaving}
+                                className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors disabled:opacity-50
+                                  ${isSel
+                                    ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                                    : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
+                              >
+                                {t.table_number}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {/* Capacity indicator + save */}
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          {selectedTableIds.size > 0 ? (
+                            <span className={`text-xs font-bold ${capacityOk ? 'text-cayo-teal' : 'text-cayo-red'}`}>
+                              {capacityOk
+                                ? `קיבולת: ${selectedCapacity} ✓`
+                                : `קיבולת: ${selectedCapacity}/${guests} ⚠`}
+                            </span>
+                          ) : <span />}
                           <button
-                            key={t.id}
-                            onClick={e => { e.stopPropagation(); assignTableById(t) }}
-                            disabled={tableSaving}
-                            className="w-9 h-9 rounded-lg border-2 border-cayo-burgundy/20 text-sm font-black text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white transition-colors disabled:opacity-50"
+                            onClick={e => { e.stopPropagation(); saveTableAssignment() }}
+                            disabled={tableSaving || (selectedTableIds.size > 0 && !capacityOk)}
+                            className="text-xs font-black text-white bg-cayo-tealDark px-3 py-1 rounded-lg disabled:opacity-40 hover:opacity-90 transition"
                           >
-                            {t.table_number}
+                            {tableSaving ? '...' : 'שמור'}
                           </button>
-                        ))}
-                      </div>
+                        </div>
+                      </>
                     )}
                     {tableError && (
                       <p className="text-xs font-bold text-cayo-red mt-1.5">{tableError}</p>

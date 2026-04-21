@@ -42,6 +42,7 @@ import { UndoToast, UndoToastState } from '../../components/UndoToast'
 export default function HostDashboard() {
   const router = useRouter()
   const [items, setItems] = useState<Reservation[]>([])
+  const [totalCapacity, setTotalCapacity] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   // aria-live message announced to screen readers on any status flip.
@@ -95,6 +96,7 @@ export default function HostDashboard() {
         (r: Reservation) => r.date === shiftDateStr
       )
       setItems(todays)
+      if (typeof data.totalCapacity === 'number') setTotalCapacity(data.totalCapacity)
       setError('')
     } catch {
       setError('אין חיבור לשרת')
@@ -279,6 +281,7 @@ export default function HostDashboard() {
   const expectedGuests = items
     .filter(r => servedStatuses.includes(r.status))
     .reduce((sum, r) => sum + r.guests, 0)
+  const freeSeats = totalCapacity !== null ? Math.max(0, totalCapacity - expectedGuests) : null
 
   // Header label uses the shift day + dayOffset.
   const shiftDate = shiftAdjustedDate(new Date(now))
@@ -412,11 +415,23 @@ export default function HostDashboard() {
         </div>
         {/* Top row: single stat card + link to marked list */}
         <div className="mb-4 grid grid-cols-2 gap-2">
-          <Stat
-            label="הזמנות היום"
-            value={String(expectedGuests)}
-            sub="סועדים"
-          />
+          <div className="bg-white border-2 border-cayo-burgundy/15 rounded-xl px-3 py-2.5 flex items-stretch gap-3">
+            {freeSeats !== null && (
+              <>
+                <div className="flex-1">
+                  <p className="text-[10px] font-bold text-cayo-burgundy/75 uppercase tracking-wider">מקומות פנויים</p>
+                  <p className="text-xl font-black mt-0.5 text-cayo-teal">{freeSeats}</p>
+                  <p className="text-[11px] font-bold text-cayo-burgundy/75 mt-0.5 leading-tight">מתוך {totalCapacity}</p>
+                </div>
+                <div className="w-px bg-cayo-burgundy/10 self-stretch" />
+              </>
+            )}
+            <div className="flex-1">
+              <p className="text-[10px] font-bold text-cayo-burgundy/75 uppercase tracking-wider">הזמנות היום</p>
+              <p className="text-xl font-black mt-0.5 text-cayo-burgundy">{expectedGuests}</p>
+              <p className="text-[11px] font-bold text-cayo-burgundy/75 mt-0.5 leading-tight">סועדים</p>
+            </div>
+          </div>
           <Link
             href="/host/marked"
             className="bg-white border-2 border-cayo-burgundy/15 rounded-xl px-3 py-2.5 hover:border-cayo-burgundy/40 active:scale-[0.98] transition flex flex-col justify-center"

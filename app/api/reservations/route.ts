@@ -7,7 +7,7 @@ import {
 } from '@/lib/reservations-store'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
-import { checkSlotAvailability, VALID_TIMES } from '@/lib/capacity'
+import { checkSlotAvailability, VALID_TIMES, BAR_CAPACITY, TABLE_CAPACITY } from '@/lib/capacity'
 import { shiftDayLocal } from '@/lib/shift-day'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { sendConfirmation } from '@/lib/resend'
@@ -103,10 +103,10 @@ export async function GET() {
   // Hostess-only session: restrict to today's shift only. This also prevents
   // a host-authenticated device from pulling the full customer history.
   if (host) {
-    return NextResponse.json({ reservations: reservations.filter(r => r.date === today) })
+    return NextResponse.json({ reservations: reservations.filter(r => r.date === today), totalCapacity: BAR_CAPACITY + TABLE_CAPACITY })
   }
 
-  return NextResponse.json({ reservations })
+  return NextResponse.json({ reservations, totalCapacity: BAR_CAPACITY + TABLE_CAPACITY })
 }
 
 export async function POST(request: Request) {
