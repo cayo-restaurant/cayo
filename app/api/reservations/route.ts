@@ -11,6 +11,10 @@ import { checkSlotAvailability, VALID_TIMES } from '@/lib/capacity'
 import { shiftDayLocal } from '@/lib/shift-day'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { sendConfirmation } from '@/lib/resend'
+import { autoPickTables, autoAssignUnassigned } from '@/lib/auto-assign'
+import { setAssignments } from '@/lib/assignments-store'
+import { addToWaitingList } from '@/lib/waiting-list-store'
+import { getServiceClient } from '@/lib/supabase'
 
 const reservationSchema = z.object({
   name: z.string().min(2, 'נא להזין שם'),
@@ -76,6 +80,23 @@ export async function GET() {
   } catch {
     // Non-fatal: if the sweep fails we still want to serve the list.
   }
+
+  // Background sweep: auto-assign tables to ALL active reservations that
+  // don't have one yet — covers existing bookings, future dates, and
+  // manually-created entries. Fire-and-forget — don't block the response.
+  void (async () => {
+    try {
+      const { data } = await getServiceClient()
+        .from('reservations')
+        .select('date')
+        .in('status', ['pending', 'confirmed', 'arrived'])
+        .gte('date', today)
+      const dates = [...new Set((data ?? []).map((r: { date: string }) => r.date))]
+      for (const date of dates) {
+        await autoAssignUnassigned(date).catch(() => {})
+      }
+    } catch { /* non-fatal */ }
+  })()
 
   const reservations = await listReservations()
 
@@ -175,8 +196,40 @@ export async function POST(request: Request) {
     // the sendConfirmation block here using an env flag instead of `false &&`.
     void sendConfirmation
 
-    return NextResponse.json({ success: true, id: reservation.id })
+    // Auto table assignment
+    let autoAssigned = false
+    let addedToWaiting = false
+    try {
+      const bestTables = await autoPickTables(
+        reservation.date,
+        reservation.time,
+        reservation.guests,
+        reservation.area,
+      )
+      if (bestTables.length > 0) {
+        await setAssignments(
+          reservation.id,
+          bestTables.map(t => t.id),
+          bestTables[0].id,
+        )
+        autoAssigned = true
+      } else {
+        // No table available - add to waiting list for all bookings (staff included).
+        await addToWaitingList({
+          name: reservation.name,
+          phone: reservation.phone,
+          guests: reservation.guests,
+          requestedDate: reservation.date,
+          requestedTime: reservation.time,
+        })
+        addedToWaiting = true
+      }
+    } catch (assignErr) {
+      console.error('[reservations POST] auto-assign error:', assignErr)
+    }
+
+    return NextResponse.json({ success: true, id: reservation.id, autoAssigned, addedToWaiting })
   } catch {
-    return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })
+    return NextResponse.json({ error: '\u05e9\u05d2\u05d9\u05d0\u05d4 \u05d1\u05dc\u05ea\u05d9 \u05e6\u05e4\u05d5\u05d9\u05d4' }, { status: 500 })
   }
 }

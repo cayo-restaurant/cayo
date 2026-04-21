@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSession, signIn, signOut } from 'next-auth/react'
@@ -11,6 +11,19 @@ import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
 
 type Status = 'pending' | 'confirmed' | 'cancelled' | 'arrived' | 'no_show' | 'completed'
 type Area = 'bar' | 'table'
+
+// Mirror of WaitingListEntry in lib/waiting-list-store.ts
+interface WaitingListEntry {
+  id: string
+  name: string
+  phone: string
+  guests: number
+  requestedDate: string
+  requestedTime: string
+  autoAssigned: boolean
+  reservationId: string | null
+  createdAt: string
+}
 
 // Mirror of AssignedTable in lib/assignments-store.ts — duplicated here so the
 // client bundle doesn't pull in the server-only supabase service client.
@@ -425,6 +438,10 @@ function Dashboard() {
   const [todayShifts, setTodayShifts] = useState<TodayShift[]>([])
   // Real floor for the floor-load strip + per-row undersize check.
   const [floorTables, setFloorTables] = useState<FloorTable[]>([])
+  // Waiting list
+  const [waitingList, setWaitingList] = useState<WaitingListEntry[]>([])
+  const [autoAssignNotice, setAutoAssignNotice] = useState<string | null>(null)
+  const prevWaitingCountRef = useRef<number>(-1)
 
   async function loadTodayShifts() {
     const today = toDateString(new Date())
@@ -465,10 +482,34 @@ function Dashboard() {
     }
   }
 
+  async function loadWaitingList() {
+    try {
+      const res = await fetch('/api/waiting-list', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const entries: WaitingListEntry[] = data.waitingList || []
+      // Detect auto-assignment: count decreased since last load → someone was promoted
+      if (prevWaitingCountRef.current > 0 && entries.length < prevWaitingCountRef.current) {
+        setAutoAssignNotice('שובץ אוטומטית מרשימת ההמתנה — הזמנה חדשה נוצרה')
+        setTimeout(() => setAutoAssignNotice(null), 8000)
+      }
+      prevWaitingCountRef.current = entries.length
+      setWaitingList(entries)
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  async function removeFromWaiting(id: string) {
+    await fetch(`/api/waiting-list/${id}`, { method: 'DELETE' })
+    loadWaitingList()
+  }
+
   useEffect(() => {
     load()
     loadTodayShifts()
     loadFloorTables()
+    loadWaitingList()
   }, [])
 
   // Tick `now` every 30 seconds so the "חדש" badge expires on time without reloads
@@ -484,7 +525,10 @@ function Dashboard() {
   // connection drops on a flaky network.
   useEffect(() => {
     const id = setInterval(() => {
-      if (modal === null && deleteConfirm === null && pickerFor === null) load()
+      if (modal === null && deleteConfirm === null && pickerFor === null) {
+        load()
+        loadWaitingList()
+      }
     }, 60_000)
     return () => clearInterval(id)
   }, [modal, deleteConfirm, pickerFor])
@@ -496,6 +540,7 @@ function Dashboard() {
     if (evt.table === 'reservations' || evt.table === 'reservation_tables') {
       if (modal === null && deleteConfirm === null && pickerFor === null) {
         load()
+        loadWaitingList()
       }
     }
     if (evt.table === 'restaurant_tables') {
@@ -1335,6 +1380,71 @@ function Dashboard() {
           </h2>
         </div>
 
+        {/* Auto-assign notification banner */}
+        {autoAssignNotice && (
+          <div className="mb-4 flex items-center justify-between gap-3 bg-cayo-teal/10 border-2 border-cayo-teal/30 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-cayo-teal text-lg">✓</span>
+              <p className="text-sm font-bold text-cayo-teal">{autoAssignNotice}</p>
+            </div>
+            <button
+              onClick={() => setAutoAssignNotice(null)}
+              className="text-cayo-teal/60 hover:text-cayo-teal text-lg font-black"
+              aria-label="סגור"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Waiting list section */}
+        {waitingList.length > 0 && (
+          <div className="mb-6 border-2 border-cayo-orange/30 rounded-2xl overflow-hidden">
+            <div className="bg-cayo-orange/10 px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-cayo-orange text-lg">⏳</span>
+                <h3 className="text-sm font-black text-cayo-orange uppercase tracking-wider">
+                  רשימת המתנה
+                </h3>
+                <span className="text-xs font-black bg-cayo-orange text-white px-2 py-0.5 rounded-full">
+                  {waitingList.length}
+                </span>
+              </div>
+              <p className="text-xs text-cayo-orange/70 font-bold">
+                לפי סדר כניסה · שיבוץ אוטומטי כשיתפנה שולחן
+              </p>
+            </div>
+            <div className="divide-y divide-cayo-orange/10">
+              {waitingList.map((entry, idx) => (
+                <div key={entry.id} className="px-4 py-3 flex items-center gap-3 bg-white hover:bg-cayo-orange/5 transition-colors">
+                  <span className="text-xs font-black text-cayo-orange/50 w-5 text-center">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-black text-cayo-burgundy">{entry.name || '— ללא שם —'}</p>
+                      <span className="text-xs font-bold bg-cayo-burgundy/8 text-cayo-burgundy px-2 py-0.5 rounded-full">
+                        {entry.guests} {entry.guests === 1 ? 'סועד' : 'סועדים'}
+                      </span>
+                      <span className="text-xs font-bold text-cayo-burgundy/60" dir="ltr">
+                        {entry.requestedDate} · {entry.requestedTime}
+                      </span>
+                    </div>
+                    {entry.phone && (
+                      <p className="text-xs text-cayo-burgundy/50 mt-0.5" dir="ltr">{entry.phone}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => removeFromWaiting(entry.id)}
+                    className="text-xs font-bold text-cayo-red/60 hover:text-cayo-red px-2 py-1 rounded-lg hover:bg-cayo-red/5 transition-colors shrink-0"
+                    aria-label="הסר מרשימת המתנה"
+                  >
+                    הסר
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Reservations list — bar + tables in parallel columns on lg screens */}
         {loading ? (
           <p className="text-center text-cayo-burgundy/50 py-16 font-bold">טוען...</p>
@@ -1412,9 +1522,6 @@ function Dashboard() {
           reservation={pickerFor}
           allReservations={items}
           onSaved={(tables) => {
-            // Optimistic local update — replace the tables array on the
-            // affected reservation only. The API already returned the
-            // authoritative list so we don't need a re-fetch.
             setItems(prev =>
               prev.map(it => (it.id === pickerFor.id ? { ...it, tables } : it))
             )
@@ -1467,7 +1574,6 @@ export default function AdminPage() {
   const { data: session, status } = useSession()
   const [errorParam, setErrorParam] = useState<string | null>(null)
 
-  // Read ?error=... from the URL (NextAuth appends this on /admin when sign-in is rejected).
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)

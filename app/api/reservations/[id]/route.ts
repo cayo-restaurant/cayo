@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { deleteReservation, updateReservation, getReservation, listReservations } from '@/lib/reservations-store'
+import { deleteReservation, updateReservation, getReservation, listReservations, createReservation } from '@/lib/reservations-store'
 import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
 import { VALID_TIMES, computeAvailability, checkSlotAvailability } from '@/lib/capacity'
 import { shiftDayLocal } from '@/lib/shift-day'
+import { autoPickTables } from '@/lib/auto-assign'
+import { setAssignments, clearAssignments } from '@/lib/assignments-store'
+import { findNextWaiting, markAssigned } from '@/lib/waiting-list-store'
 
 // Status transitions that the on-shift hostess is allowed to make. Anything
 // else (editing name/phone/time, approving a pending, cancelling, etc.) stays
@@ -122,6 +125,55 @@ export async function PATCH(
         { status: 409 }
       )
     }
+
+    // ── Waiting list promotion ────────────────────────────────────────────────
+    // When a reservation transitions to a "releasing" status (cancelled,
+    // no_show, completed), its table(s) free up. Check if someone on the
+    // waiting list for the same date can now be served.
+    const RELEASING = new Set(['cancelled', 'no_show', 'completed'])
+    if (patchData.status && RELEASING.has(patchData.status) && updated.tables.length > 0) {
+      try {
+        // Clear the assignments so the table is really free
+        await clearAssignments(params.id)
+
+        // For each freed table, try to promote the oldest waiting entry that fits
+        for (const freedTable of updated.tables) {
+          const candidate = await findNextWaiting(updated.date, freedTable.capacityMax)
+          if (!candidate) continue
+
+          // Auto-assign: try to find the best table(s) for this candidate
+          const bestTables = await autoPickTables(
+            candidate.requestedDate,
+            candidate.requestedTime,
+            candidate.guests,
+            'table',
+          )
+          if (bestTables.length === 0) continue
+
+          // Create a new reservation from the waiting list entry
+          const newReservation = await createReservation({
+            name: candidate.name,
+            phone: candidate.phone,
+            email: '',
+            date: candidate.requestedDate,
+            time: candidate.requestedTime,
+            area: 'table',
+            guests: candidate.guests,
+            terms: true,
+          })
+          await setAssignments(
+            newReservation.id,
+            bestTables.map(t => t.id),
+            bestTables[0].id,
+          )
+          await markAssigned(candidate.id, newReservation.id)
+          break
+        }
+      } catch (promoteErr) {
+        console.error('[reservations PATCH] waiting-list promotion error:', promoteErr)
+      }
+    }
+
     return NextResponse.json({ success: true, reservation: updated })
   } catch {
     return NextResponse.json({ error: 'שגיאה בלתי צפויה' }, { status: 500 })
