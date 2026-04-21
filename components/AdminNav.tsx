@@ -10,11 +10,11 @@ interface NavLink {
 }
 
 const LINKS: NavLink[] = [
-  { href: '/', label: 'בית' },
-  { href: '/reservation', label: 'הזמנת מקום' },
   { href: '/admin', label: 'ניהול הזמנות' },
+  { href: '/host', label: 'מצב מארחת' },
+  { href: '/admin/map', label: 'מפת מסעדה' },
   { href: '/admin/employees', label: 'עובדים' },
-  { href: '/admin/hours', label: 'שעות עבודה' },
+  { href: '/admin/hours', label: 'סידור' },
 ]
 
 export default function AdminNav() {
@@ -138,4 +138,3 @@ export default function AdminNav() {
       </nav>
     </>
   )
-}
