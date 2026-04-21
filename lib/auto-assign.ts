@@ -33,6 +33,7 @@ export interface TableCandidate {
   area: string
   linkGroupId: string | null
   comboZone: number | null
+  comboBonusPerPair: number
 }
 
 export interface ExistingAssignment {
@@ -139,7 +140,8 @@ function findComboZone(
         const win = sorted.slice(i, i + size)
         // All must be free (a busy table in the run disqualifies the whole window)
         if (!win.every(t => freeIds.has(t.id))) continue
-        const totalCap = win.reduce((s, t) => s + t.capacityMax, 0)
+        const bonusPerPair = win[0].comboBonusPerPair ?? 0
+        const totalCap = win.reduce((s, t) => s + t.capacityMax, 0) + Math.floor(size / 2) * bonusPerPair
         if (totalCap < guests) continue
         valid.push({ tables: win, totalCap })
       }
@@ -189,17 +191,31 @@ export function pickTables(
         ? a.capacityMax - b.capacityMax
         : a.tableNumber - b.tableNumber,
     )
-  if (singleFit.length > 0) return [singleFit[0]]
-
   // 2. Multi-table fallback
   if (area === 'bar') {
     return findConsecutiveBarSeats(freeTables, guests)
   }
 
+  // Fixed link groups take priority when they fit.
   const linked = findLinkedGroup(areaTables, freeIds, guests)
   if (linked.length > 0) return linked
 
-  return findComboZone(areaTables, freeIds, guests)
+  // Compare single-table vs combo-zone: prefer whichever wastes fewer seats.
+  // Ties go to the combo zone (the sofa bonus makes it the efficient choice).
+  const combo = findComboZone(areaTables, freeIds, guests)
+
+  if (combo.length > 0 && singleFit.length > 0) {
+    const singleWaste = singleFit[0].capacityMax - guests
+    const bonusPerPair = combo[0].comboBonusPerPair ?? 0
+    const comboTotalCap =
+      combo.reduce((s, t) => s + t.capacityMax, 0) +
+      Math.floor(combo.length / 2) * bonusPerPair
+    const comboWaste = comboTotalCap - guests
+    return comboWaste <= singleWaste ? combo : [singleFit[0]]
+  }
+
+  if (singleFit.length > 0) return [singleFit[0]]
+  return combo
 }
 
 /** Backward-compat alias. Prefer pickTables(). */
@@ -225,6 +241,7 @@ interface TableRow {
   capacity_max: number
   link_group_id: string | null
   combo_zone: number | null
+  combo_bonus_per_pair: number
 }
 
 interface JunctionRow {
@@ -255,7 +272,7 @@ export async function autoPickTables(
 
   const { data: tableRows, error: tErr } = await sb
     .from('restaurant_tables')
-    .select('id, table_number, area, capacity_min, capacity_max, link_group_id, combo_zone')
+    .select('id, table_number, area, capacity_min, capacity_max, link_group_id, combo_zone, combo_bonus_per_pair')
     .eq('active', true)
   if (tErr) throw tErr
 
@@ -267,6 +284,7 @@ export async function autoPickTables(
     area: r.area,
     linkGroupId: r.link_group_id ?? null,
     comboZone: r.combo_zone ?? null,
+    comboBonusPerPair: r.combo_bonus_per_pair ?? 0,
   }))
 
   const { data: resvRows, error: rErr } = await sb
