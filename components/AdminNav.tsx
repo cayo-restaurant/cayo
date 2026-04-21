@@ -13,6 +13,7 @@ const LINKS: NavLink[] = [
   { href: '/admin', label: 'ניהול הזמנות' },
   { href: '/host', label: 'מצב מארחת' },
   { href: '/admin/map', label: 'מפת מסעדה' },
+  { href: '/admin/dashboard', label: 'דשבורד' },
   { href: '/admin/employees', label: 'עובדים' },
   { href: '/admin/hours', label: 'סידור' },
 ]
