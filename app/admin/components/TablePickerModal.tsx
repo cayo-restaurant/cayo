@@ -14,6 +14,7 @@
 // now does.
 import { useEffect, useMemo, useState } from 'react'
 import { useAdminRealtime } from '@/lib/hooks/useAdminRealtime'
+import { ZONE_ORDER, ZONE_LABEL, tableZone, Zone } from '@/app/host/shared'
 
 interface TableLite {
   id: string
@@ -126,6 +127,16 @@ export default function TablePickerModal({
   // below flips this off when she wants to combine small tables manually.
   // Auto-opens if filtering would leave her with zero options.
   const [showSmall, setShowSmall] = useState(false)
+  // Accordion: only one zone's list is visible at a time. Tapping a zone
+  // header toggles its list; tapping another zone replaces the open one.
+  // Defaults to the zone of the currently-assigned primary table so
+  // re-opening for an existing assignment lands the hostess on the right
+  // section. Otherwise starts collapsed so the hostess can pick a zone
+  // intentionally instead of scrolling through everything.
+  const [expandedZone, setExpandedZone] = useState<Zone | null>(() => {
+    const primary = reservation.tables.find(t => t.isPrimary) || reservation.tables[0]
+    return primary ? tableZone(primary.tableNumber) : null
+  })
 
   // Re-seed selection when reservation changes (e.g. modal re-opened for another row)
   useEffect(() => {
@@ -133,6 +144,11 @@ export default function TablePickerModal({
       setSelectedIds(seedSelection(reservation.tables))
       setShowSmall(false)
       setError('')
+      // When the modal re-opens for another row, land the accordion on the
+      // zone of the currently-assigned primary table. If none assigned,
+      // collapse to the chip-picker state.
+      const primary = reservation.tables.find(t => t.isPrimary) || reservation.tables[0]
+      setExpandedZone(primary ? tableZone(primary.tableNumber) : null)
     }
   }, [open, reservation.id, reservation.tables])
 
@@ -257,8 +273,19 @@ export default function TablePickerModal({
       setShowSmall(true)
     }
   }, [showSmall, loading, tables.length, visibleTables.length])
-  const barTables = visibleTables.filter(t => t.area === 'bar')
-  const areaTables = visibleTables.filter(t => t.area === 'table')
+  // Group by physical zone derived from table_number (ויטרינה / ספות / בר).
+  // Sort each zone's list by table number so the hostess sees a predictable
+  // sequence. Empty zones are rendered as nothing — nothing to hide.
+  const tablesByZone = useMemo(() => {
+    const map: Record<Zone, TableLite[]> = { window: [], sofas: [], bar: [], other: [] }
+    for (const t of visibleTables) {
+      map[tableZone(t.table_number)].push(t)
+    }
+    for (const zone of ZONE_ORDER) {
+      map[zone].sort((a, b) => a.table_number - b.table_number)
+    }
+    return map
+  }, [visibleTables])
   const primaryId = selectedIds[0] ?? null
   const showPrimaryBadge = selectedIds.length >= 2 // no point showing "primary" when there's only one
   const renderRow = (t: TableLite) => {
@@ -337,7 +364,7 @@ export default function TablePickerModal({
         </div>
 
         {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
           {loading && (
             <p className="text-center text-gray-500 text-sm py-6">טוען שולחנות…</p>
           )}
@@ -359,21 +386,37 @@ export default function TablePickerModal({
                 : `הצגת שולחנות המתאימים ל-${reservation.guests} סועדים · הציגי גם קטנים (${hiddenCount})`}
             </button>
           )}
-          {!loading && areaTables.length > 0 && (
-            <div>
-              <h3 className="text-xs font-black text-cayo-burgundy/70 uppercase tracking-wide mb-2">
-                שולחנות ({areaTables.length})
-              </h3>
-              <div className="space-y-2">{areaTables.map(renderRow)}</div>
-            </div>
-          )}
-          {!loading && barTables.length > 0 && (
-            <div>
-              <h3 className="text-xs font-black text-cayo-burgundy/70 uppercase tracking-wide mb-2">
-                בר ({barTables.length})
-              </h3>
-              <div className="space-y-2">{barTables.map(renderRow)}</div>
-            </div>
+          {!loading && (
+            <>
+              {/* Row of compact zone chips. Tapping a chip expands only its
+                  tables beneath; tapping again collapses. At most one zone
+                  is open at a time. */}
+              <div className="flex gap-1.5 flex-wrap">
+                {ZONE_ORDER.map(zone => {
+                  const zoneTables = tablesByZone[zone]
+                  if (zoneTables.length === 0) return null
+                  const isOpen = expandedZone === zone
+                  return (
+                    <button
+                      key={zone}
+                      type="button"
+                      onClick={() => setExpandedZone(isOpen ? null : zone)}
+                      className={`px-3 h-10 rounded-lg border-2 text-sm font-black transition-colors ${
+                        isOpen
+                          ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                          : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy/5'
+                      }`}
+                      aria-expanded={isOpen}
+                    >
+                      {ZONE_LABEL[zone]}
+                    </button>
+                  )
+                })}
+              </div>
+              {expandedZone && tablesByZone[expandedZone].length > 0 && (
+                <div className="space-y-2">{tablesByZone[expandedZone].map(renderRow)}</div>
+              )}
+            </>
           )}
         </div>
 
@@ -425,3 +468,4 @@ export default function TablePickerModal({
     </div>
   )
 }
+

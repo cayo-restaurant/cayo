@@ -71,6 +71,30 @@ export const AREA_LABEL: Record<Area, string> = {
   table: 'שולחן',
 }
 
+// Physical zones inside the restaurant. These are derived from the
+// table_number so the hostess always sees tables grouped the same way
+// she thinks about the room (ויטרינה / ספות / בר) without needing a
+// schema migration. Anything outside the defined ranges falls back to
+// 'other' so nothing silently disappears from the picker.
+export type Zone = 'window' | 'sofas' | 'bar' | 'other'
+
+export const ZONE_LABEL: Record<Zone, string> = {
+  window: 'ויטרינה',
+  sofas: 'ספות',
+  bar: 'בר',
+  other: 'אחר',
+}
+
+// Order zones appear in every picker (right-to-left reading: ויטרינה first).
+export const ZONE_ORDER: Zone[] = ['window', 'sofas', 'bar', 'other']
+
+export function tableZone(tableNumber: number): Zone {
+  if (tableNumber >= 1 && tableNumber <= 15) return 'window'
+  if (tableNumber >= 20 && tableNumber <= 25) return 'sofas'
+  if (tableNumber >= 101 && tableNumber <= 110) return 'bar'
+  return 'other'
+}
+
 export const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 export const HEBREW_MONTHS = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -551,6 +575,13 @@ export function ReservationDetailModal({
   const [selectedTableIds, setSelectedTableIds] = useState<Set<string>>(
     () => new Set(r.tables.map(t => t.id))
   )
+  // Accordion: only one zone's grid is visible at a time. Defaults to the
+  // zone of the currently-assigned primary table so the hostess lands on
+  // the right section when opening the picker on an existing assignment.
+  const [expandedZone, setExpandedZone] = useState<Zone | null>(() => {
+    const primary = r.tables.find(t => t.isPrimary) ?? r.tables[0]
+    return primary ? tableZone(primary.tableNumber) : null
+  })
 
   const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 
@@ -719,32 +750,58 @@ export function ReservationDetailModal({
                       <p className="text-xs font-bold text-cayo-burgundy/50">אין שולחנות פנויים</p>
                     ) : (
                       <>
-                        <div className="flex flex-wrap gap-1.5">
-                          {availableTables.map(t => {
-                            const isSel = selectedTableIds.has(t.id)
+                        {/* Zone chips — accordion: one zone open at a time */}
+                        <div className="flex gap-1.5 flex-wrap">
+                          {ZONE_ORDER.map(zone => {
+                            const zoneTables = availableTables.filter(t => tableZone(t.table_number) === zone)
+                            if (zoneTables.length === 0) return null
+                            const isOpen = expandedZone === zone
                             return (
                               <button
-                                key={t.id}
-                                onClick={e => {
-                                  e.stopPropagation()
-                                  setSelectedTableIds(prev => {
-                                    const next = new Set(prev)
-                                    if (next.has(t.id)) next.delete(t.id)
-                                    else next.add(t.id)
-                                    return next
-                                  })
-                                }}
-                                disabled={tableSaving}
-                                className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors disabled:opacity-50
-                                  ${isSel
+                                key={zone}
+                                type="button"
+                                onClick={e => { e.stopPropagation(); setExpandedZone(isOpen ? null : zone) }}
+                                className={`px-2.5 h-9 rounded-lg border-2 text-xs font-black transition-colors
+                                  ${isOpen
                                     ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
-                                    : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
+                                    : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy/5'}`}
+                                aria-expanded={isOpen}
                               >
-                                {t.table_number}
+                                {ZONE_LABEL[zone]}
                               </button>
                             )
                           })}
                         </div>
+                        {expandedZone && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {availableTables
+                              .filter(t => tableZone(t.table_number) === expandedZone)
+                              .map(t => {
+                                const isSel = selectedTableIds.has(t.id)
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={e => {
+                                      e.stopPropagation()
+                                      setSelectedTableIds(prev => {
+                                        const next = new Set(prev)
+                                        if (next.has(t.id)) next.delete(t.id)
+                                        else next.add(t.id)
+                                        return next
+                                      })
+                                    }}
+                                    disabled={tableSaving}
+                                    className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors disabled:opacity-50
+                                      ${isSel
+                                        ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                                        : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
+                                  >
+                                    {t.table_number}
+                                  </button>
+                                )
+                              })}
+                          </div>
+                        )}
                         {/* Capacity indicator + save */}
                         <div className="mt-2 flex items-center justify-between gap-2">
                           {selectedTableIds.size > 0 ? (
@@ -979,3 +1036,4 @@ export function ModalField({ label, children }: { label: string; children: React
     </div>
   )
 }
+

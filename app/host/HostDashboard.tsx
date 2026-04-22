@@ -36,6 +36,9 @@ import {
   toDateString,
   GuestScrollPicker,
   ModalField,
+  ZONE_ORDER,
+  ZONE_LABEL,
+  tableZone,
 } from './shared'
 import { UndoToast, UndoToastState } from '../../components/UndoToast'
 
@@ -583,6 +586,11 @@ function NewReservationModal({
   const [selectedTable, setSelectedTable] = useState<TableLite | null>(null)
   const [tableSaving, setTableSaving] = useState(false)
   const [tableError, setTableError] = useState('')
+  // Accordion: only one zone's table grid is visible at a time. Tapping a
+  // zone chip opens its grid; tapping the same chip again closes it. Tapping
+  // a different chip replaces the open one. No zone open by default so the
+  // hostess sees only the three chips when she first opens the picker.
+  const [expandedZone, setExpandedZone] = useState<null | 'window' | 'sofas' | 'bar' | 'other'>(null)
 
   async function submit() {
     setSaving(true)
@@ -665,20 +673,52 @@ function NewReservationModal({
                   {allTables.length === 0 ? (
                     <p className="text-xs font-bold text-cayo-burgundy/50">אין שולחנות</p>
                   ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {allTables.sort((a, b) => a.table_number - b.table_number).map(t => (
-                        <button
-                          key={t.id}
-                          onClick={e => { e.stopPropagation(); setSelectedTable(t); setTablePickerOpen(false) }}
-                          className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors
-                            ${selectedTable?.id === t.id
-                              ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
-                              : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
-                        >
-                          {t.table_number}
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      {/* Row of compact zone chips. Tapping a chip expands
+                          only its tables beneath; tapping again collapses. */}
+                      <div className="flex gap-1.5 flex-wrap">
+                        {ZONE_ORDER.map(zone => {
+                          const zoneTables = allTables.filter(t => tableZone(t.table_number) === zone)
+                          if (zoneTables.length === 0) return null
+                          const isOpen = expandedZone === zone
+                          return (
+                            <button
+                              key={zone}
+                              type="button"
+                              onClick={e => { e.stopPropagation(); setExpandedZone(isOpen ? null : zone) }}
+                              className={`px-2.5 h-9 rounded-lg border-2 text-xs font-black transition-colors
+                                ${isOpen
+                                  ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                                  : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy/5'}`}
+                              aria-expanded={isOpen}
+                            >
+                              {ZONE_LABEL[zone]}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {expandedZone && (() => {
+                        const zoneTables = allTables
+                          .filter(t => tableZone(t.table_number) === expandedZone)
+                          .sort((a, b) => a.table_number - b.table_number)
+                        return (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {zoneTables.map(t => (
+                              <button
+                                key={t.id}
+                                onClick={e => { e.stopPropagation(); setSelectedTable(t); setTablePickerOpen(false); setExpandedZone(null) }}
+                                className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors
+                                  ${selectedTable?.id === t.id
+                                    ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
+                                    : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
+                              >
+                                {t.table_number}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                    </>
                   )}
                   {tableError && <p className="text-xs font-bold text-cayo-red mt-1.5">{tableError}</p>}
                 </div>
