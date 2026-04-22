@@ -93,10 +93,9 @@ export default function HostDashboard() {
         return
       }
       const data = await res.json()
-      // Belt-and-suspenders: the server already filters to the shift day for a
-      // host-only request, but if the same browser also carries an admin cookie
-      // the server returns the full dataset. Filter on the client too so the
-      // hostess view is always scoped to "today" regardless of which cookie won.
+      // Server returns the full dataset (both admin and host sessions). The
+      // day picker in the header sets `dayOffset`; we filter down to just the
+      // selected shift day here so the list stays focused per-day.
       const baseShiftDate = shiftAdjustedDate(new Date())
       baseShiftDate.setDate(baseShiftDate.getDate() + dayOffset)
       const shiftDateStr = toDateString(baseShiftDate)

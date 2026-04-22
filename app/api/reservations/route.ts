@@ -120,12 +120,10 @@ export async function GET() {
 
   const reservations = await listReservations()
 
-  // Hostess-only session: restrict to today's shift only. This also prevents
-  // a host-authenticated device from pulling the full customer history.
-  if (host) {
-    return NextResponse.json({ reservations: reservations.filter(r => r.date === today), totalCapacity: BAR_CAPACITY + TABLE_CAPACITY })
-  }
-
+  // Host sessions now receive the full dataset so the day picker in the
+  // hostess dashboard can navigate past/future days. The client filters by
+  // the selected shift date locally. (Previously we filtered to `today`
+  // server-side, which broke the day picker.)
   return NextResponse.json({ reservations, totalCapacity: BAR_CAPACITY + TABLE_CAPACITY })
 }
 
