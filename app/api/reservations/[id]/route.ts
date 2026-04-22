@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { deleteReservation, updateReservation, getReservation, listReservations, createReservation, logReservationEvent } from '@/lib/reservations-store'
+import { deleteReservation, updateReservation, getReservation, listReservations, logReservationEvent } from '@/lib/reservations-store'
 import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
 import { VALID_TIMES, computeAvailability, checkSlotAvailability } from '@/lib/capacity'
 import { shiftDayLocal } from '@/lib/shift-day'
-import { autoPickTables } from '@/lib/auto-assign'
-import { setAssignments, clearAssignments } from '@/lib/assignments-store'
-import { findNextWaiting, markAssigned } from '@/lib/waiting-list-store'
+import { promoteWaitingListForDate } from '@/lib/auto-assign'
+import { clearAssignments } from '@/lib/assignments-store'
 
 // Status transitions that the on-shift hostess is allowed to make. Anything
 // else (editing name/phone/time, approving a pending, cancelling, etc.) stays
@@ -174,50 +173,38 @@ export async function PATCH(
     }
 
     // ── Waiting list promotion ────────────────────────────────────────────────
-    // When a reservation transitions to a "releasing" status (cancelled,
-    // no_show, completed), its table(s) free up. Check if someone on the
-    // waiting list for the same date can now be served.
+    // Any change that COULD free capacity should re-scan the waiting list:
+    //   - Status transitions to cancelled / no_show / completed (table freed)
+    //   - Date moved (old date freed)
+    //   - Time moved (old time-window freed)
+    //   - Guests reduced (smaller table now sufficient → may free a combo)
+    //   - Area moved (old area freed)
+    // The sweep itself is idempotent — autoPickTables decides per-entry.
     const RELEASING = new Set(['cancelled', 'no_show', 'completed'])
-    if (patchData.status && RELEASING.has(patchData.status) && updated.tables.length > 0) {
+    const releasedStatus =
+      patchData.status !== undefined &&
+      RELEASING.has(patchData.status) &&
+      pre !== null &&
+      !RELEASING.has(pre.status)
+    const dateMoved = pre !== null && patchData.date !== undefined && patchData.date !== pre.date
+    const timeMoved = pre !== null && patchData.time !== undefined && patchData.time !== pre.time
+    const areaMoved = pre !== null && patchData.area !== undefined && patchData.area !== pre.area
+    const guestsReduced =
+      pre !== null && patchData.guests !== undefined && patchData.guests < pre.guests
+
+    if (releasedStatus || dateMoved || timeMoved || areaMoved || guestsReduced) {
       try {
-        // Clear the assignments so the table is really free
-        await clearAssignments(params.id)
+        // If status released, drop the assignments so the table is really free.
+        if (releasedStatus && updated.tables.length > 0) {
+          await clearAssignments(params.id)
+        }
 
-        // For each freed table, try to promote the oldest waiting entry that fits
-        for (const freedTable of updated.tables) {
-          const candidate = await findNextWaiting(updated.date, freedTable.capacityMax)
-          if (!candidate) continue
-
-          // Auto-assign: try to find the best table(s) for this candidate
-          const bestTables = await autoPickTables(
-            candidate.requestedDate,
-            candidate.requestedTime,
-            candidate.guests,
-            'table',
-          )
-          if (bestTables.length === 0) continue
-
-          // Create a new reservation from the waiting list entry. Source
-          // stays 'customer' — this guest originally booked via the public form
-          // and just got promoted off the waiting list.
-          const newReservation = await createReservation({
-            name: candidate.name,
-            phone: candidate.phone,
-            email: '',
-            date: candidate.requestedDate,
-            time: candidate.requestedTime,
-            area: 'table',
-            guests: candidate.guests,
-            terms: true,
-            source: 'customer',
-          }, { actor: 'system' })
-          await setAssignments(
-            newReservation.id,
-            bestTables.map(t => t.id),
-            bestTables[0].id,
-          )
-          await markAssigned(candidate.id, newReservation.id)
-          break
+        // Sweep the destination date (always) AND the previous date if the
+        // date moved — both could now have free capacity for waiting guests.
+        const datesToSweep = new Set<string>([updated.date])
+        if (dateMoved && pre) datesToSweep.add(pre.date)
+        for (const d of datesToSweep) {
+          await promoteWaitingListForDate(d)
         }
       } catch (promoteErr) {
         console.error('[reservations PATCH] waiting-list promotion error:', promoteErr)
@@ -237,9 +224,23 @@ export async function DELETE(
   const unauthorized = await requireAdmin()
   if (unauthorized) return unauthorized
 
+  // Snapshot the date BEFORE delete so we know which day's waiting list to
+  // re-scan after the row is gone.
+  const pre = await getReservation(params.id)
+
   const ok = await deleteReservation(params.id)
   if (!ok) {
     return NextResponse.json({ error: 'הזמנה לא נמצאה' }, { status: 404 })
   }
+
+  // The deletion freed capacity on `pre.date`. Try to seat anyone waiting.
+  // Fire-and-forget — the client doesn't need to wait for promotion to render
+  // its updated list, and a promotion failure must not break the delete.
+  if (pre) {
+    void promoteWaitingListForDate(pre.date).catch(err =>
+      console.error('[reservations DELETE] waiting-list promotion error:', err),
+    )
+  }
+
   return NextResponse.json({ success: true })
 }

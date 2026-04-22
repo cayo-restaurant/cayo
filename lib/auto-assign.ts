@@ -336,6 +336,73 @@ export async function autoPickTable(
 }
 
 /**
+ * Sweep ALL pending waiting-list entries for a given date and try to promote
+ * each one to a real reservation against the CURRENT availability.
+ *
+ * Why this exists:
+ *   The legacy promotion path (PATCH /api/reservations/[id] on releasing
+ *   statuses) only fires on cancelled/no_show/completed transitions, and
+ *   matches a single freed table by `capacityMax`. That misses every other
+ *   path that frees capacity — DELETEs, guest-count reductions, time/date
+ *   moves — and ignores combo_zone/linked-group fits that need more than
+ *   one table to seat the party.
+ *
+ * This helper is the catch-all: pull every pending entry FIFO, ask
+ * autoPickTables() if we can seat them right now, and if so, create a real
+ * reservation + assignment + mark the waiting entry as auto-assigned.
+ *
+ * Returns the number of waiting-list entries promoted.
+ */
+export async function promoteWaitingListForDate(date: string): Promise<number> {
+  // Lazy imports to avoid circular dependency between auto-assign,
+  // waiting-list-store, reservations-store, and assignments-store.
+  const { listWaitingByDate, markAssigned } = await import('./waiting-list-store')
+  const { createReservation } = await import('./reservations-store')
+  const { setAssignments } = await import('./assignments-store')
+
+  const pending = await listWaitingByDate(date)
+  if (pending.length === 0) return 0
+
+  let promoted = 0
+  for (const entry of pending) {
+    try {
+      const bestTables = await autoPickTables(
+        entry.requestedDate,
+        entry.requestedTime,
+        entry.guests,
+        entry.area,
+      )
+      if (bestTables.length === 0) continue
+
+      // Create the real reservation. Source 'customer' — the guest originally
+      // booked via the public form and we're just finishing the job for them.
+      const newReservation = await createReservation({
+        name: entry.name,
+        phone: entry.phone,
+        email: '',
+        date: entry.requestedDate,
+        time: entry.requestedTime,
+        area: entry.area,
+        guests: entry.guests,
+        terms: true,
+        source: 'customer',
+      }, { actor: 'system' })
+
+      await setAssignments(
+        newReservation.id,
+        bestTables.map(t => t.id),
+        bestTables[0].id,
+      )
+      await markAssigned(entry.id, newReservation.id)
+      promoted++
+    } catch {
+      // Non-fatal — keep going so one bad row doesn't block others.
+    }
+  }
+  return promoted
+}
+
+/**
  * Sweep all active reservations for a given date that have no table assigned
  * and auto-assign the best available table(s) to each (FIFO by time).
  */

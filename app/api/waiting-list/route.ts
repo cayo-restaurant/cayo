@@ -11,6 +11,9 @@ const addSchema = z.object({
     message: 'מספר טלפון לא תקין',
   }).optional().default(''),
   guests: z.number().min(1).max(10),
+  // Default 'table' preserves prior behavior for any client that hasn't
+  // started sending area yet.
+  area: z.enum(['bar', 'table']).optional().default('table'),
   requestedDate: z.string().min(1),
   requestedTime: z.string().min(1),
 })
@@ -54,6 +57,7 @@ export async function POST(request: Request) {
       name: parsed.data.name || 'אורח/ת',
       phone: parsed.data.phone || '',
       guests: parsed.data.guests,
+      area: parsed.data.area,
       requestedDate: parsed.data.requestedDate,
       requestedTime: parsed.data.requestedTime,
     })

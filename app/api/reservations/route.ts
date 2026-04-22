@@ -11,7 +11,7 @@ import { checkSlotAvailability, VALID_TIMES, BAR_CAPACITY, TABLE_CAPACITY } from
 import { shiftDayLocal } from '@/lib/shift-day'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { sendConfirmation } from '@/lib/resend'
-import { autoPickTables, autoAssignUnassigned } from '@/lib/auto-assign'
+import { autoPickTables, autoAssignUnassigned, promoteWaitingListForDate } from '@/lib/auto-assign'
 import { setAssignments } from '@/lib/assignments-store'
 import { addToWaitingList } from '@/lib/waiting-list-store'
 import { getServiceClient } from '@/lib/supabase'
@@ -82,17 +82,37 @@ export async function GET() {
   }
 
   // Background sweep: auto-assign tables to ALL active reservations that
-  // don't have one yet — covers existing bookings, future dates, and
-  // manually-created entries. Fire-and-forget — don't block the response.
+  // don't have one yet, AND re-scan the waiting list for any date with
+  // pending entries (in case capacity opened up via a path that didn't
+  // trigger event-driven promotion — DELETE, edit, etc.).
+  // Fire-and-forget — don't block the response.
   void (async () => {
     try {
-      const { data } = await getServiceClient()
-        .from('reservations')
-        .select('date')
-        .in('status', ['pending', 'confirmed', 'arrived'])
-        .gte('date', today)
-      const dates = [...new Set((data ?? []).map((r: { date: string }) => r.date))]
-      for (const date of dates) {
+      const sb = getServiceClient()
+      const [{ data: resvDates }, { data: waitDates }] = await Promise.all([
+        sb
+          .from('reservations')
+          .select('date')
+          .in('status', ['pending', 'confirmed', 'arrived'])
+          .gte('date', today),
+        sb
+          .from('waiting_list')
+          .select('requested_date')
+          .eq('auto_assigned', false)
+          .gte('requested_date', today),
+      ])
+      const reservationDates = new Set(
+        (resvDates ?? []).map((r: { date: string }) => r.date),
+      )
+      const waitingDates = new Set(
+        (waitDates ?? []).map((r: { requested_date: string }) => r.requested_date),
+      )
+      // Run promotions FIRST so freshly-promoted reservations aren't then
+      // re-assigned by the unassigned sweep on the same pass.
+      for (const date of waitingDates) {
+        await promoteWaitingListForDate(date).catch(() => {})
+      }
+      for (const date of new Set([...reservationDates, ...waitingDates])) {
         await autoAssignUnassigned(date).catch(() => {})
       }
     } catch { /* non-fatal */ }
@@ -224,6 +244,7 @@ export async function POST(request: Request) {
           name: reservation.name,
           phone: reservation.phone,
           guests: reservation.guests,
+          area: reservation.area,
           requestedDate: reservation.date,
           requestedTime: reservation.time,
         })

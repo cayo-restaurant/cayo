@@ -6,11 +6,14 @@
 
 import { getServiceClient } from './supabase'
 
+export type WaitingArea = 'bar' | 'table'
+
 export interface WaitingListEntry {
   id: string
   name: string
   phone: string
   guests: number
+  area: WaitingArea
   requestedDate: string   // YYYY-MM-DD
   requestedTime: string   // HH:mm
   autoAssigned: boolean
@@ -25,6 +28,7 @@ interface Row {
   name: string
   phone: string
   guests: number
+  area: WaitingArea | null
   requested_date: string
   requested_time: string
   auto_assigned: boolean
@@ -39,6 +43,10 @@ function rowToEntry(row: Row): WaitingListEntry {
     name: row.name,
     phone: row.phone,
     guests: row.guests,
+    // Defensive: default to 'table' if a legacy row predates the `area`
+    // column. The migration sets a NOT NULL default, so this branch is just
+    // belt-and-braces.
+    area: (row.area ?? 'table') as WaitingArea,
     requestedDate: row.requested_date,
     requestedTime: row.requested_time,
     autoAssigned: row.auto_assigned,
@@ -81,6 +89,7 @@ export async function addToWaitingList(entry: {
   name: string
   phone: string
   guests: number
+  area?: WaitingArea
   requestedDate: string
   requestedTime: string
 }): Promise<WaitingListEntry> {
@@ -91,6 +100,9 @@ export async function addToWaitingList(entry: {
       name: entry.name,
       phone: entry.phone,
       guests: entry.guests,
+      // Default 'table' matches the DB-side default; passing it explicitly
+      // makes the intent clear in tests and audit logs.
+      area: entry.area ?? 'table',
       requested_date: entry.requestedDate,
       requested_time: entry.requestedTime,
     })
