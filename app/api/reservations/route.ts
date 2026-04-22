@@ -13,7 +13,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { sendConfirmation } from '@/lib/resend'
 import { autoPickTables, autoAssignUnassigned, promoteWaitingListForDate } from '@/lib/auto-assign'
 import { setAssignments } from '@/lib/assignments-store'
-import { addToWaitingList } from '@/lib/waiting-list-store'
+import { addToWaitingList, claimMatchingWaiting } from '@/lib/waiting-list-store'
 import { getServiceClient } from '@/lib/supabase'
 
 const reservationSchema = z.object({
@@ -220,6 +220,22 @@ export async function POST(request: Request) {
     // which broke the Vercel build. To re-enable confirmation emails, restore
     // the sendConfirmation block here using an env flag instead of `false &&`.
     void sendConfirmation
+
+    // Claim any pending waitlist entry for the same guest + slot. Covers the
+    // "customer was on the waitlist, then rebooked another way" gap — without
+    // this, the old waitlist row would stay flagged pending forever. Runs BEFORE
+    // auto-assign so that a failure here doesn't block the table assignment.
+    try {
+      await claimMatchingWaiting({
+        name: reservation.name,
+        phone: reservation.phone,
+        date: reservation.date,
+        time: reservation.time,
+        reservationId: reservation.id,
+      })
+    } catch (claimErr) {
+      console.error('[reservations POST] waitlist claim error:', claimErr)
+    }
 
     // Auto table assignment
     let autoAssigned = false

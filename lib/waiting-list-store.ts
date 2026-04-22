@@ -125,6 +125,57 @@ export async function markAssigned(
   if (error) throw error
 }
 
+/**
+ * When a reservation is created outside the waitlist-sweep path (customer
+ * rebooked via the public form, admin added manually, hostess took a phone
+ * call), orphan waitlist entries get left behind for the same guest. This
+ * claims them and ties them to the new reservation so they disappear from
+ * the pending list.
+ *
+ * Match criteria (all must hold): same date, same requested_time,
+ * auto_assigned=false, AND (phone matches when both sides have a phone, OR
+ * name matches when both sides have a name). Phones and names each need to
+ * be non-empty on both sides to count — we never match on an empty string.
+ *
+ * Returns the number of rows claimed.
+ */
+export async function claimMatchingWaiting(params: {
+  name: string
+  phone: string
+  date: string
+  time: string
+  reservationId: string
+}): Promise<number> {
+  const sb = getServiceClient()
+
+  // Pull candidates for the exact date+time first — cheap index hit.
+  const { data, error } = await sb
+    .from(TABLE)
+    .select('id, name, phone')
+    .eq('requested_date', params.date)
+    .eq('requested_time', params.time)
+    .eq('auto_assigned', false)
+  if (error) throw error
+
+  const candidates = (data ?? []) as { id: string; name: string; phone: string }[]
+  if (candidates.length === 0) return 0
+
+  const matches = candidates.filter(r => {
+    if (params.phone && r.phone && params.phone === r.phone) return true
+    if (params.name && r.name && params.name === r.name) return true
+    return false
+  })
+  if (matches.length === 0) return 0
+
+  const { error: upErr } = await sb
+    .from(TABLE)
+    .update({ auto_assigned: true, reservation_id: params.reservationId })
+    .in('id', matches.map(m => m.id))
+  if (upErr) throw upErr
+
+  return matches.length
+}
+
 /** Remove an entry manually (admin action). */
 export async function removeFromWaitingList(id: string): Promise<boolean> {
   const sb = getServiceClient()
