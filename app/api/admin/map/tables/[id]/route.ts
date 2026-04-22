@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAdmin } from '@/lib/admin-auth'
+import { isAdminRequest } from '@/lib/admin-auth'
+import { isHostRequest } from '@/lib/host-auth'
 import { getServiceClient } from '@/lib/supabase'
 import { shiftDayLocal } from '@/lib/shift-day'
+
+// Either an admin Google session or a valid hostess cookie can edit the
+// map. Hostesses adjust tables during a shift; admins manage the layout
+// between shifts. Same trust level — both are authenticated employees.
+async function requireMapEditor() {
+  const admin = await isAdminRequest()
+  if (admin) return null
+  if (isHostRequest()) return null
+  return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
+}
 
 // Reservations that still occupy a table and therefore block a table delete.
 // Kept in sync with OCCUPYING_STATUSES in lib/capacity.ts — inlined here to
@@ -78,7 +89,7 @@ const updateSchema = z
 type Params = { params: Promise<{ id: string }> }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const denied = await requireAdmin()
+  const denied = await requireMapEditor()
   if (denied) return denied
 
   const { id } = await params
@@ -120,7 +131,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const denied = await requireAdmin()
+  const denied = await requireMapEditor()
   if (denied) return denied
 
   const { id } = await params

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Heebo } from 'next/font/google'
 import './globals.css'
 import AdminNav from '@/components/AdminNav'
+import HostNav from '@/components/HostNav'
 import AuthProvider from '@/components/AuthProvider'
 
 const heebo = Heebo({
@@ -31,6 +32,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <AdminNav />
+          <HostNav />
         </AuthProvider>
       </body>
     </html>

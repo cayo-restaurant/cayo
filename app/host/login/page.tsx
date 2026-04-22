@@ -1,36 +1,45 @@
 'use client'
 
-// PIN entry for the hostess. Deliberately simple: 4 large digits, big touch
-// targets (this will usually run on a tablet near the host stand). Auto-submits
-// when the 4th digit is typed.
+// Hostess login — phone + password.
+//
+// This runs on a shared tablet near the host stand. We keep the form small
+// and the inputs big so a hostess can log in one-handed while juggling a
+// seating plan. There's only one error message on purpose (same text for
+// "wrong phone" and "wrong password") so we don't leak which employees
+// exist in the system.
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import cayoLogo from '../../../cayo_brand_page_005.png'
 
-const PIN_LENGTH = 4
-
 export default function HostLoginPage() {
   const router = useRouter()
-  const [pin, setPin] = useState('')
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const phoneRef = useRef<HTMLInputElement>(null)
 
-  // Auto-focus the hidden input so the on-screen keyboard pops up on mobile
   useEffect(() => {
-    inputRef.current?.focus()
+    phoneRef.current?.focus()
   }, [])
 
-  async function submit(code: string) {
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (submitting) return
+    if (!phone.trim() || !password) {
+      setError('יש למלא טלפון וסיסמה')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
       const res = await fetch('/api/host/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: code }),
+        body: JSON.stringify({ phone: phone.trim(), password }),
       })
       if (res.ok) {
         router.replace('/host')
@@ -38,34 +47,19 @@ export default function HostLoginPage() {
         return
       }
       const data = await res.json().catch(() => ({}))
-      setError(data?.error || 'קוד שגוי')
-      setPin('')
-      // Re-focus so the user can type again immediately
-      setTimeout(() => inputRef.current?.focus(), 0)
+      setError(data?.error || 'טלפון או סיסמה שגויים')
+      setPassword('')
     } catch {
       setError('שגיאת חיבור')
-      setPin('')
     } finally {
       setSubmitting(false)
     }
   }
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH)
-    setPin(v)
-    setError('')
-    if (v.length === PIN_LENGTH && !submitting) {
-      submit(v)
-    }
-  }
-
   return (
-    <div
-      className="min-h-screen bg-white flex items-center justify-center px-6"
-      onClick={() => inputRef.current?.focus()}
-    >
+    <div className="min-h-screen bg-white flex items-center justify-center px-6">
       <div className="max-w-sm w-full">
-        <Link href="/" className="block mb-10" onClick={e => e.stopPropagation()}>
+        <Link href="/" className="block mb-10">
           <div className="w-[160px] mx-auto overflow-hidden">
             <Image src={cayoLogo} alt="CAYO" className="w-full h-auto scale-[1.35]" priority />
           </div>
@@ -75,54 +69,71 @@ export default function HostLoginPage() {
           כניסת מארחת
         </h1>
         <p className="text-cayo-burgundy/50 text-center text-sm mb-8">
-          הזינו את קוד המשמרת
+          טלפון וסיסמה שקיבלת מהמנהל
         </p>
 
-        {/* Visual pin boxes — the real input is hidden */}
-        <div className="flex justify-center gap-3 mb-6" dir="ltr">
-          {Array.from({ length: PIN_LENGTH }).map((_, i) => {
-            const filled = i < pin.length
-            return (
-              <div
-                key={i}
-                className={`w-14 h-16 rounded-2xl border-2 flex items-center justify-center text-3xl font-black transition-colors ${
-                  error
-                    ? 'border-cayo-red/60 bg-cayo-red/5 text-cayo-red'
-                    : filled
-                    ? 'border-cayo-burgundy bg-cayo-burgundy/5 text-cayo-burgundy'
-                    : 'border-cayo-burgundy/20 text-cayo-burgundy/40'
-                }`}
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label htmlFor="host-phone" className="block text-xs font-bold text-cayo-burgundy/70 mb-1.5">
+              טלפון
+            </label>
+            <input
+              id="host-phone"
+              ref={phoneRef}
+              type="tel"
+              inputMode="tel"
+              autoComplete="username"
+              dir="ltr"
+              value={phone}
+              onChange={e => { setPhone(e.target.value); setError('') }}
+              className="w-full px-4 py-3 text-lg rounded-2xl border-2 border-cayo-burgundy/20 focus:border-cayo-burgundy outline-none transition-colors"
+              placeholder="0501234567"
+              aria-invalid={Boolean(error)}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="host-password" className="block text-xs font-bold text-cayo-burgundy/70 mb-1.5">
+              סיסמה
+            </label>
+            <div className="relative">
+              <input
+                id="host-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={e => { setPassword(e.target.value); setError('') }}
+                className="w-full px-4 py-3 pl-12 text-lg rounded-2xl border-2 border-cayo-burgundy/20 focus:border-cayo-burgundy outline-none transition-colors"
+                aria-invalid={Boolean(error)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(s => !s)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-cayo-burgundy/60 hover:text-cayo-burgundy px-2 py-1"
+                aria-label={showPassword ? 'הסתר סיסמה' : 'הצג סיסמה'}
               >
-                {filled ? '•' : ''}
-              </div>
-            )
-          })}
-        </div>
+                {showPassword ? 'הסתר' : 'הצג'}
+              </button>
+            </div>
+          </div>
 
-        <input
-          ref={inputRef}
-          type="tel"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="[0-9]*"
-          maxLength={PIN_LENGTH}
-          value={pin}
-          onChange={onChange}
-          className="sr-only"
-          aria-label="קוד משמרת"
-        />
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 bg-cayo-burgundy text-white text-base font-black rounded-2xl hover:bg-cayo-burgundy/90 active:scale-[0.99] transition disabled:opacity-60"
+          >
+            {submitting ? 'בודק...' : 'כניסה'}
+          </button>
 
-        <div className="min-h-[28px] text-center">
-          {error && (
-            <p className="text-sm text-cayo-red font-bold">{error}</p>
-          )}
-          {submitting && !error && (
-            <p className="text-sm text-cayo-burgundy/50 font-bold">בודק...</p>
-          )}
-        </div>
+          <div className="min-h-[24px] text-center">
+            {error && (
+              <p role="alert" className="text-sm text-cayo-red font-bold">{error}</p>
+            )}
+          </div>
+        </form>
 
-        <p className="text-xs text-cayo-burgundy/40 text-center mt-8">
-          הקוד תקף לטאבלט זה בלבד ל-30 יום
+        <p className="text-xs text-cayo-burgundy/40 text-center mt-6">
+          המשמרת תישאר פתוחה 12 שעות ואז תידרש כניסה מחדש
         </p>
       </div>
     </div>

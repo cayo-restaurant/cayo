@@ -48,6 +48,11 @@ export default function HostDashboard() {
   const [totalCapacity, setTotalCapacity] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Logged-in hostess identity — shown in the header so multiple users
+  // sharing a tablet can see who's currently signed in. Fetched once on
+  // mount; null until loaded (or if the session cookie is invalid — in
+  // which case the user would've already been redirected to /host/login).
+  const [hostUser, setHostUser] = useState<{ full_name: string } | null>(null)
   // aria-live message announced to screen readers on any status flip.
   // Mirrors what the sighted hostess sees in the optimistic list update.
   const [announce, setAnnounce] = useState('')
@@ -251,6 +256,21 @@ export default function HostDashboard() {
     router.replace('/host/login')
   }
 
+  // Fetch the identity of the currently signed-in hostess for the header.
+  // We don't gate the dashboard on this — server-side redirects already
+  // handle unauthenticated access. If /me returns 401 we silently stay
+  // anonymous (the page itself will have redirected).
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/host/me')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!cancelled && data?.full_name) setHostUser({ full_name: data.full_name })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   const enriched: Enriched[] = useMemo(() => enrich(items, now, tables), [items, now, tables])
 
   async function updateReservation(id: string, updates: Partial<Reservation>) {
@@ -401,14 +421,21 @@ export default function HostDashboard() {
             </div>
           </div>
         </div>
-        {/* Logout row */}
-        <div className="max-w-3xl mx-auto px-5 pb-2 flex justify-start">
+        {/* Identity + logout row. The name is mostly for shared-tablet use
+            — lets the next hostess see "oh, it's still on Dana's session"
+            and switch users before marking anything. */}
+        <div className="max-w-3xl mx-auto px-5 pb-2 flex items-center justify-between">
           <button
             onClick={logout}
             className="text-xs font-bold text-cayo-burgundy/60 hover:text-cayo-burgundy transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cayo-burgundy/60 focus-visible:ring-offset-2 py-1"
           >
-            יציאה
+            {hostUser ? 'החלף משתמש' : 'יציאה'}
           </button>
+          {hostUser && (
+            <span className="text-xs font-bold text-cayo-burgundy/70">
+              שלום, {hostUser.full_name}
+            </span>
+          )}
         </div>
       </header>
 

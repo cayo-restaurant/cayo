@@ -558,6 +558,13 @@ export function ReservationDetailModal({
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // "בטל הזמנה" flow: two-step so a stray tap doesn't accidentally cancel.
+  // confirmCancelOpen toggles the confirmation overlay; cancelling sets the
+  // reservation status to 'cancelled' via the same PATCH endpoint the admin
+  // uses, then notifies the parent + closes the modal.
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState('')
   const [name, setName] = useState(r.name)
   const [guests, setGuests] = useState(r.guests)
   const [area, setArea] = useState<Area>(r.area)
@@ -672,6 +679,35 @@ export function ReservationDetailModal({
       setSaveError('אין חיבור לשרת')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function cancelReservation() {
+    setCancelling(true)
+    setCancelError('')
+    try {
+      const res = await fetch(`/api/reservations/${r.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      })
+      if (res.status === 403) {
+        setCancelError('שגיאת הרשאה')
+        return
+      }
+      if (!res.ok) {
+        setCancelError('שגיאה בביטול, נסי שוב')
+        return
+      }
+      // Let parent reflect the new status immediately. Cast through
+      // Partial<Reservation> — the status field is part of the shared type.
+      onSaved({ status: 'cancelled' } as Partial<Reservation>)
+      setConfirmCancelOpen(false)
+      onClose()
+    } catch {
+      setCancelError('אין חיבור לשרת')
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -890,10 +926,22 @@ export function ReservationDetailModal({
 
         {/* Footer */}
         <div className="px-5 pb-5 pt-3 flex flex-col gap-2">
-          <div className="flex justify-end">
+          {/* Cancel pinned to the far right, save to the far left, via
+              justify-between. Same solid-pill shape as save; colour swapped
+              to cayo-red so the destructive action reads instantly. */}
+          <div className="flex gap-2 justify-between">
+            {r.status !== 'cancelled' ? (
+              <button
+                onClick={() => { setConfirmCancelOpen(true); setCancelError('') }}
+                disabled={saving || cancelling}
+                className="h-11 px-6 rounded-xl bg-cayo-red text-white font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50"
+              >
+                בטל הזמנה
+              </button>
+            ) : <span />}
             <button
               onClick={save}
-              disabled={saving}
+              disabled={saving || cancelling}
               className="h-11 px-6 rounded-xl bg-cayo-tealDark text-white font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50"
             >
               {saving ? 'שומר...' : 'שמור שינויים'}
@@ -909,6 +957,49 @@ export function ReservationDetailModal({
           )}
         </div>
       </div>
+
+      {/* Cancel-confirmation overlay — rendered above the detail modal so
+          the hostess is forced to confirm explicitly. */}
+      {confirmCancelOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          dir="rtl"
+          onClick={() => { if (!cancelling) setConfirmCancelOpen(false) }}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-xs shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3">
+              <h3 className="text-base font-black text-cayo-burgundy mb-2">
+                לבטל הזמנה?
+              </h3>
+              <p className="text-sm font-bold text-cayo-burgundy/70 leading-relaxed">
+                {r.name ? `ההזמנה של ${r.name} ל-${r.time}` : `ההזמנה ל-${r.time}`} תסומן כמבוטלת והשולחן ישוחרר.
+              </p>
+              {cancelError && (
+                <p className="text-xs font-bold text-cayo-red mt-2">{cancelError}</p>
+              )}
+            </div>
+            <div className="px-5 pb-5 pt-2 flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmCancelOpen(false)}
+                disabled={cancelling}
+                className="h-11 px-5 rounded-xl border-2 border-cayo-burgundy/15 text-cayo-burgundy font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50 hover:bg-cayo-burgundy/5"
+              >
+                חזרה
+              </button>
+              <button
+                onClick={cancelReservation}
+                disabled={cancelling}
+                className="h-11 px-5 rounded-xl bg-cayo-red text-white font-black text-sm active:scale-[0.98] transition-transform disabled:opacity-50"
+              >
+                {cancelling ? 'מבטל...' : 'כן, בטל'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

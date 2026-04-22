@@ -18,6 +18,10 @@ interface Employee {
   gender: Gender | null
   active: boolean
   created_at: string
+  // Derived server-side — true iff password_hash is set. Lets us show an
+  // "אין סיסמה" badge for host/manager rows that still need one. The raw
+  // hash is never exposed to the client.
+  has_password?: boolean
 }
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -44,6 +48,9 @@ const emptyForm = {
   phone: '',
   email: '',
   gender: '' as Gender | '',
+  // Optional — only visible/used for employees who should log into the
+  // hostess dashboard (roles include 'host' or 'manager').
+  password: '',
 }
 
 export default function EmployeesPage() {
@@ -83,6 +90,10 @@ export default function EmployeesPage() {
       phone: emp.phone || '',
       email: emp.email || '',
       gender: emp.gender || '',
+      // Always reset password to empty on edit — the existing hash is not
+      // sent to the client, and leaving this blank on save will keep the
+      // current password untouched.
+      password: '',
     })
     setError('')
     setShowModal(true)
@@ -104,9 +115,17 @@ export default function EmployeesPage() {
     setSaving(true)
     setError('')
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...form,
       gender: form.gender || undefined,
+    }
+    // Empty password = "don't change". Strip the field so the server
+    // leaves the existing hash alone. Also strip when the employee can't
+    // actually use login (no host/manager role) to avoid setting a
+    // password on a record that no one can sign in with.
+    const canLogin = form.roles.includes('host') || form.roles.includes('manager')
+    if (!form.password || !canLogin) {
+      delete payload.password
     }
 
     const url = editId ? `/api/employees/${editId}` : '/api/employees'
@@ -217,7 +236,23 @@ export default function EmployeesPage() {
                 )}
                 {filtered.map(emp => (
                   <tr key={emp.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!emp.active ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{emp.full_name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <span>{emp.full_name}</span>
+                        {/* Missing-password warning — only for employees who are
+                            expected to log in (host / manager). Reminds the
+                            admin to set a password from the edit modal. */}
+                        {(emp.roles?.includes('host') || emp.roles?.includes('manager')) &&
+                          !emp.has_password && emp.active && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700"
+                            title="העובד/ת לא יכול/ה להיכנס עד שתיקבע סיסמה"
+                          >
+                            אין סיסמה
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-1">
                         {(emp.roles || []).map(r => (
@@ -352,6 +387,32 @@ export default function EmployeesPage() {
                   />
                 </div>
               </div>
+
+              {/* Password — only relevant for employees who can log into the
+                  hostess dashboard. Hidden entirely for non-login roles so
+                  the form stays focused. Leaving the field blank on edit
+                  keeps the existing password untouched. */}
+              {(form.roles.includes('host') || form.roles.includes('manager')) && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    סיסמה לכניסת מארחת
+                  </label>
+                  <p className="text-xs text-gray-400 mb-1.5">
+                    {editId
+                      ? 'ריק = לא משנה. הקלידו ערך כדי להחליף סיסמה.'
+                      : 'יוקצה לעובד/ת לכניסה לדשבורד המארחת.'}
+                  </p>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none font-mono"
+                    placeholder={editId ? '••••••••' : 'סיסמה חדשה'}
+                    autoComplete="new-password"
+                  />
+                </div>
+              )}
 
               <div className="flex items-center gap-3 pt-2">
                 <button

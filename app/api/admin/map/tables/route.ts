@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
+import { isAdminRequest } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
 import { getServiceClient } from '@/lib/supabase'
 
@@ -58,8 +58,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const denied = await requireAdmin()
-  if (denied) return denied
+  // Map edits are allowed for admins and for logged-in hostesses (the
+  // owner wants hostesses able to reshape the floor plan during a shift).
+  // The underlying table is append-only from a correctness standpoint —
+  // anyone with a valid session cookie is trusted.
+  const admin = await isAdminRequest()
+  const host = !admin && isHostRequest()
+  if (!admin && !host) {
+    return NextResponse.json({ error: 'לא מורשה' }, { status: 401 })
+  }
 
   let body: unknown
   try { body = await req.json() } catch {

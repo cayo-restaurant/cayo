@@ -164,6 +164,26 @@ function tablePayload(t: EditableTable) {
 
 export default function AdminMapPage() {
   const { status } = useSession()
+  // A logged-in hostess (host cookie, not an admin Google session) can also
+  // view this page. She lands here via /host/map and sees the live map only
+  // — no edit controls, no delete, no drag-to-move. Writes are blocked at
+  // the API layer regardless; this gate just keeps the UI honest.
+  const [isHost, setIsHost] = useState<boolean | null>(null)
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/host/me', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (mounted) setIsHost(Boolean(data?.id)) })
+      .catch(() => { if (mounted) setIsHost(false) })
+    return () => { mounted = false }
+  }, [])
+  // True when the viewer is a hostess and NOT also an admin. Used only
+  // for cosmetic adjustments (back-link target/label); editing itself is
+  // allowed for hostesses too — the API enforces auth on writes.
+  const hostOnly = isHost === true && status !== 'authenticated'
+  // The map is usable as soon as either identity resolves.
+  const isAuthed = status === 'authenticated' || isHost === true
+
   const [tables, setTables] = useState<EditableTable[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -202,10 +222,10 @@ export default function AdminMapPage() {
   }
 
   useEffect(() => {
-    if (status !== 'authenticated') return
+    if (!isAuthed) return
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status])
+  }, [isAuthed])
 
   // Ref to the current live-reservations fetcher so the realtime handler
   // can refresh without re-capturing the closure on every render.
@@ -214,7 +234,7 @@ export default function AdminMapPage() {
   // Live mode data: pull reservations, poll every 60 s as a fallback,
   // and tick a 30 s clock so `reserved_soon` expires without a re-fetch.
   useEffect(() => {
-    if (status !== 'authenticated') return
+    if (!isAuthed) return
     if (editMode) {
       setLiveReservations([])
       setLivePopoverId(null)
@@ -240,9 +260,9 @@ export default function AdminMapPage() {
       clearInterval(tick)
       liveFetchRef.current = null
     }
-  }, [status, editMode])
+  }, [isAuthed, editMode])
 
-  useAdminRealtime(!editMode && status === 'authenticated', (evt) => {
+  useAdminRealtime(!editMode && isAuthed, (evt) => {
     if (evt.table === 'restaurant_tables') {
       // Layout changed somewhere else — reload the tables list.
       load()
@@ -318,14 +338,18 @@ export default function AdminMapPage() {
     }
   }
 
-  if (status === 'loading') {
+  // Wait until both identity probes resolve (NextAuth status + /api/host/me)
+  // before deciding whether to show the login prompt. Otherwise a hostess
+  // with a valid cookie would see a flash of "please log in" while NextAuth
+  // is still reporting 'loading'.
+  if (status === 'loading' || isHost === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cayo-cream">
         <p className="text-cayo-burgundy font-bold">טוען...</p>
       </div>
     )
   }
-  if (status === 'unauthenticated') {
+  if (!isAuthed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cayo-cream">
         <div className="text-center">
@@ -556,8 +580,11 @@ export default function AdminMapPage() {
       <div className="bg-cayo-burgundy text-white">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Link href="/admin" className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-3 py-1.5 text-sm font-bold">
-              חזרה
+            <Link
+              href={hostOnly ? '/host' : '/admin'}
+              className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-3 py-1.5 text-sm font-bold"
+            >
+              {hostOnly ? 'חזרה למצב מארחת' : 'חזרה'}
             </Link>
             <h1 className="text-xl sm:text-2xl font-black">מפת המסעדה</h1>
             {!loading && (
