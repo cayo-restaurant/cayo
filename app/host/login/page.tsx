@@ -1,12 +1,15 @@
 'use client'
 
-// Hostess login — phone + password.
+// Staff login — phone + password.
 //
-// This runs on a shared tablet near the host stand. We keep the form small
-// and the inputs big so a hostess can log in one-handed while juggling a
-// seating plan. There's only one error message on purpose (same text for
-// "wrong phone" and "wrong password") so we don't leak which employees
-// exist in the system.
+// Any active employee with a password can sign in here (not just host /
+// manager). After login they land on /staff, a role-aware landing page
+// that shows tiles for the screens they're allowed to see. Only employees
+// whose roles include host/manager can then proceed to /host, /host/map,
+// and /host/marked.
+//
+// There's only one error message on purpose (same text for "wrong phone"
+// and "wrong password") so we don't leak which employees exist.
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -42,7 +45,10 @@ export default function HostLoginPage() {
         body: JSON.stringify({ phone: phone.trim(), password }),
       })
       if (res.ok) {
-        router.replace('/host')
+        // Land everyone on the role-aware /staff home. Host/manager can
+        // proceed to /host from there; other roles see only the rota and
+        // the shift-request form.
+        router.replace('/staff')
         router.refresh()
         return
       }
@@ -66,7 +72,7 @@ export default function HostLoginPage() {
         </Link>
 
         <h1 className="text-2xl font-black text-cayo-burgundy text-center mb-2">
-          כניסת מארחת
+          כניסת צוות
         </h1>
         <p className="text-cayo-burgundy/50 text-center text-sm mb-8">
           טלפון וסיסמה שקיבלת מהמנהל
@@ -133,7 +139,7 @@ export default function HostLoginPage() {
         </form>
 
         <p className="text-xs text-cayo-burgundy/40 text-center mt-6">
-          המשמרת תישאר פתוחה 12 שעות ואז תידרש כניסה מחדש
+          ההתחברות תקפה ל-12 שעות, לאחר מכן תידרש כניסה מחדש
         </p>
       </div>
     </div>

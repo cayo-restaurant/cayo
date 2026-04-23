@@ -120,11 +120,10 @@ export default function EmployeesPage() {
       gender: form.gender || undefined,
     }
     // Empty password = "don't change". Strip the field so the server
-    // leaves the existing hash alone. Also strip when the employee can't
-    // actually use login (no host/manager role) to avoid setting a
-    // password on a record that no one can sign in with.
-    const canLogin = form.roles.includes('host') || form.roles.includes('manager')
-    if (!form.password || !canLogin) {
+    // leaves the existing hash alone. Any active employee can be given a
+    // password now (not just host/manager) since /staff/* is open to all
+    // roles — waiters / kitchen / bar all sign in the same way.
+    if (!form.password) {
       delete payload.password
     }
 
@@ -239,11 +238,11 @@ export default function EmployeesPage() {
                     <td className="px-4 py-3 font-medium text-gray-900">
                       <div className="flex items-center gap-2">
                         <span>{emp.full_name}</span>
-                        {/* Missing-password warning — only for employees who are
-                            expected to log in (host / manager). Reminds the
-                            admin to set a password from the edit modal. */}
-                        {(emp.roles?.includes('host') || emp.roles?.includes('manager')) &&
-                          !emp.has_password && emp.active && (
+                        {/* Missing-password warning — every active employee
+                            can sign in to /staff now, so flag anyone active
+                            who still has no password. The admin sets one
+                            from the edit modal. */}
+                        {emp.active && !emp.has_password && (
                           <span
                             className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700"
                             title="העובד/ת לא יכול/ה להיכנס עד שתיקבע סיסמה"

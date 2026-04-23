@@ -97,6 +97,32 @@ export function getHostEmployeeId(): string | null {
   return getHostSession()?.employeeId ?? null
 }
 
+// Server-side role check used to gate /host/* pages. The staff cookie
+// itself is role-agnostic (any active employee can hold one), but the
+// hostess dashboard + map + marked list are only for employees whose
+// roles include 'host' or 'manager'. Returns true iff the current session
+// has an allowed role. Other roles are redirected to /staff.
+//
+// We intentionally duplicate the small DB lookup here rather than plumb
+// the roles through the cookie — it keeps the cookie short and lets
+// role changes take effect without forcing a re-login.
+export async function hostSessionHasHostRole(): Promise<boolean> {
+  const employeeId = getHostEmployeeId()
+  if (!employeeId) return false
+  // Lazy import to avoid pulling supabase into edge/runtime paths that
+  // only check isHostRequest().
+  const { getServiceClient } = await import('@/lib/supabase')
+  const sb = getServiceClient()
+  const { data, error } = await sb
+    .from('employees')
+    .select('roles, active')
+    .eq('id', employeeId)
+    .single()
+  if (error || !data || !data.active) return false
+  const roles: string[] = Array.isArray(data.roles) ? data.roles : []
+  return roles.includes('host') || roles.includes('manager')
+}
+
 function cookieAttrs(value: string, maxAge: number): string {
   const parts = [
     `${COOKIE_NAME}=${value}`,

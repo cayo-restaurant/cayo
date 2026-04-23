@@ -10,18 +10,21 @@ import {
 import { normalizePhone, verifyPassword } from '@/lib/password'
 import { getServiceClient } from '@/lib/supabase'
 
-// Hostess login — phone + password.
+// Staff login — phone + password.
 //
-// Only employees with:
+// Any active employee with a password_hash can sign in here. After login
+// they land on /staff, which shows role-aware tiles. The cookie itself
+// is role-agnostic; per-page guards (e.g. /host/*) decide what each role
+// can actually see.
+//
+// Requirements:
 //   - active = true
-//   - roles include 'host' or 'manager'
 //   - password_hash is set
 //   - not currently locked out (locked_until > now)
-// can sign in. On 5 consecutive failures for a given account we set
-// locked_until = now + 15min on their row. This is independent of the
-// per-IP rate limit (which still applies on top).
+// On 5 consecutive failures for a given account we set locked_until =
+// now + 15min on their row. This is independent of the per-IP rate
+// limit (which still applies on top).
 
-const ROLES_ALLOWED = ['host', 'manager'] as const
 const MAX_ACCOUNT_FAILURES = 5
 const ACCOUNT_LOCKOUT_MS = 15 * 60 * 1000
 
@@ -114,12 +117,11 @@ export async function POST(request: Request) {
     )
   }
 
-  // Confirm the employee can use the host dashboard.
-  const hasAllowedRole = Array.isArray(candidate.roles)
-    ? candidate.roles.some((r: string) => (ROLES_ALLOWED as readonly string[]).includes(r))
-    : false
-
-  if (!passwordOk || !hasAllowedRole) {
+  // No role gate here — any active employee with a valid password can
+  // sign in. The /host/* pages re-check role on the server and bounce
+  // non-host/manager staff to /staff. Keeping role enforcement at the
+  // page level means role changes take effect without forcing re-login.
+  if (!passwordOk) {
     // Increment failed_login_count and lock account if threshold reached.
     const nextCount = (candidate.failed_login_count || 0) + 1
     const shouldLock = nextCount >= MAX_ACCOUNT_FAILURES
