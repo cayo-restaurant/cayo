@@ -387,31 +387,30 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              {/* Password — only relevant for employees who can log into the
-                  hostess dashboard. Hidden entirely for non-login roles so
-                  the form stays focused. Leaving the field blank on edit
-                  keeps the existing password untouched. */}
-              {(form.roles.includes('host') || form.roles.includes('manager')) && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    סיסמה לכניסת מארחת
-                  </label>
-                  <p className="text-xs text-gray-400 mb-1.5">
-                    {editId
-                      ? 'ריק = לא משנה. הקלידו ערך כדי להחליף סיסמה.'
-                      : 'יוקצה לעובד/ת לכניסה לדשבורד המארחת.'}
-                  </p>
-                  <input
-                    type="text"
-                    dir="ltr"
-                    value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none font-mono"
-                    placeholder={editId ? '••••••••' : 'סיסמה חדשה'}
-                    autoComplete="new-password"
-                  />
-                </div>
-              )}
+              {/* Password — available for every employee. /staff/* is open to
+                  all roles (waiters, bar, kitchen, host, manager), so every
+                  active employee needs a password to sign in and submit /
+                  view shifts. Leaving the field blank on edit keeps the
+                  existing password untouched. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  סיסמה לכניסה למערכת
+                </label>
+                <p className="text-xs text-gray-400 mb-1.5">
+                  {editId
+                    ? 'ריק = לא משנה. הקלידו ערך כדי להחליף סיסמה.'
+                    : 'יוקצה לעובד/ת לכניסה לעמוד הצוות — הגשת משמרות וצפייה בסידור.'}
+                </p>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cayo-burgundy/30 focus:border-cayo-burgundy outline-none font-mono"
+                  placeholder={editId ? '••••••••' : 'סיסמה חדשה'}
+                  autoComplete="new-password"
+                />
+              </div>
 
               <div className="flex items-center gap-3 pt-2">
                 <button
