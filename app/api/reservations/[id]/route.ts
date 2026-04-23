@@ -10,8 +10,9 @@ import { clearAssignments } from '@/lib/assignments-store'
 
 // Status transitions that the on-shift hostess is allowed to make. Anything
 // else (editing name/phone/time, approving a pending, cancelling, etc.) stays
-// admin-only.
-const HOST_ALLOWED_STATUSES = new Set(['arrived', 'no_show', 'confirmed'])
+// admin-only. `completed` lets the hostess mark a table as cleared early
+// (guests left before the 90-minute window ends) so it returns to `free`.
+const HOST_ALLOWED_STATUSES = new Set(['arrived', 'no_show', 'confirmed', 'completed'])
 
 const patchSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'cancelled', 'arrived', 'no_show', 'completed']).optional(),

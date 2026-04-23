@@ -391,7 +391,7 @@ export default function AdminMapPage() {
   const popoverTable = livePopoverId ? tables.find((t) => t.id === livePopoverId) ?? null : null
   const popoverLive = livePopoverId ? liveByTableId.get(livePopoverId) ?? null : null
 
-  const advanceStatus = async (reservationId: string, nextStatus: 'confirmed' | 'arrived') => {
+  const advanceStatus = async (reservationId: string, nextStatus: 'confirmed' | 'arrived' | 'completed') => {
     // Optimistic merge so the popover reflects the change before the
     // network round-trip returns.
     setLiveReservations((prev) =>
@@ -758,7 +758,7 @@ function LivePopover({
 }: {
   tableNumber: number
   live: TableLiveState
-  onAdvance: (id: string, status: 'confirmed' | 'arrived') => void
+  onAdvance: (id: string, status: 'confirmed' | 'arrived' | 'completed') => void
   onClose: () => void
 }) {
   const dotColor =
@@ -831,6 +831,16 @@ function LivePopover({
                     className="bg-cayo-burgundy text-white font-bold text-xs rounded-lg px-3 min-h-[44px]"
                   >
                     סמן הגיעו
+                  </button>
+                )}
+                {r.status === 'arrived' && (
+                  <button
+                    type="button"
+                    onClick={() => onAdvance(r.reservationId, 'completed')}
+                    className="bg-emerald-600 text-white font-bold text-xs rounded-lg px-3 min-h-[44px]"
+                    title="פנה את השולחן והחזר אותו לסטטוס פנוי"
+                  >
+                    פינו את השולחן
                   </button>
                 )}
               </div>
