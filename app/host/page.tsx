@@ -1,21 +1,18 @@
-// Server component — checks the host cookie AND the employee's role
-// before rendering. Acts as a gatekeeper for the client-side dashboard.
+// Server component — gatekeeper for the client-side hostess dashboard.
 //
-// Any active employee can hold a staff cookie, but the hostess dashboard
-// is restricted to roles ∈ {host, manager}. Other roles (waiters,
-// bartenders, kitchen, dishwashers) are bounced back to /staff so they
-// can only see what's appropriate for them — the rota and the shift
-// submission form.
+// Access rules (see lib/host-auth.canViewHostUI):
+//   • Admins (NextAuth allowlist) pass through without a host cookie —
+//     they're already authenticated via Google.
+//   • Otherwise the visitor needs a valid host cookie AND the underlying
+//     employee record must have role host or manager. Cookie-less staff
+//     go to /host/login; wrong-role staff go to /staff (the rota +
+//     shift-request landing).
 import { redirect } from 'next/navigation'
-import { isHostRequest, hostSessionHasHostRole } from '@/lib/host-auth'
+import { canViewHostUI } from '@/lib/host-auth'
 import HostDashboard from './HostDashboard'
 
 export default async function HostPage() {
-  if (!isHostRequest()) {
-    redirect('/host/login')
-  }
-  if (!(await hostSessionHasHostRole())) {
-    redirect('/staff')
-  }
+  const gate = await canViewHostUI()
+  if (!gate.allow) redirect(gate.redirect)
   return <HostDashboard />
 }

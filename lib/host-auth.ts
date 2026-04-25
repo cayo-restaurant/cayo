@@ -123,6 +123,39 @@ export async function hostSessionHasHostRole(): Promise<boolean> {
   return roles.includes('host') || roles.includes('manager')
 }
 
+// Single gate used by every /host/* page. Returns either { allow: true }
+// (render the page) or { allow: false, redirect: <path> } (server-side
+// redirect to that path).
+//
+// Decision tree:
+//   1. If the caller is a signed-in admin (NextAuth allowlist), allow.
+//      Admins can hop straight from /admin into /host without going
+//      through the phone+password form — they already proved who they
+//      are when they signed in with Google.
+//   2. Else if there's no host cookie, send them to /host/login to sign
+//      in as an employee.
+//   3. Else if there's a host cookie but the employee's roles don't
+//      include host/manager, send them to /staff (waiters / kitchen /
+//      etc. only see the rota + shift-request form, not the floor).
+//   4. Otherwise allow.
+//
+// Using a single helper here keeps the three /host/* page guards in
+// lockstep — they all want the same answer.
+export async function canViewHostUI(): Promise<
+  { allow: true } | { allow: false; redirect: string }
+> {
+  // Lazy import: lib/auth pulls in next-auth's server helpers, which we
+  // don't want to evaluate when this module is loaded for unrelated
+  // reasons (e.g. a host-only API route).
+  const { isAdminRequest } = await import('@/lib/auth')
+  if (await isAdminRequest()) return { allow: true }
+  if (!isHostRequest()) return { allow: false, redirect: '/host/login' }
+  if (!(await hostSessionHasHostRole())) {
+    return { allow: false, redirect: '/staff' }
+  }
+  return { allow: true }
+}
+
 function cookieAttrs(value: string, maxAge: number): string {
   const parts = [
     `${COOKIE_NAME}=${value}`,
