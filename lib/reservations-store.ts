@@ -38,6 +38,10 @@ export interface Reservation {
   // Who created this reservation. 'unknown' for rows that predate the
   // source column.
   source: ReservationSource
+  // True for bookings created by the hostess on-shift (clicked a free table
+  // in the map and entered a guest count). These don't come through the
+  // customer form and don't require contact details.
+  isWalkIn: boolean
   // Populated by listReservations/getReservation. May be empty if
   // the hostess hasn't assigned a physical table yet.
   tables: AssignedTable[]
@@ -58,6 +62,7 @@ interface Row {
   notes: string | null
   internal_notes: string | null
   source: ReservationSource | null
+  is_walk_in: boolean | null
   created_at: string
   updated_at: string
 }
@@ -79,6 +84,7 @@ function rowToReservation(row: Row, tables: AssignedTable[] = []): Reservation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     source: row.source ?? 'unknown',
+    isWalkIn: row.is_walk_in ?? false,
     tables,
   }
 }
@@ -112,7 +118,17 @@ export async function getReservation(id: string): Promise<Reservation | null> {
 }
 
 export async function createReservation(
-  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'tables' | 'source'> & { source?: ReservationSource },
+  data: Omit<Reservation, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'tables' | 'source' | 'isWalkIn'> & {
+    source?: ReservationSource
+    // Walk-ins are created by the hostess in the map and seated immediately,
+    // so they should be inserted as `arrived` with `is_walk_in=true` in one
+    // shot rather than going through pending → confirmed → arrived.
+    isWalkIn?: boolean
+    // Normally new reservations start as `pending`; walk-ins (and any other
+    // staff-created flow that wants to skip the pending state) can pass an
+    // explicit status here.
+    status?: ReservationStatus
+  },
   opts: { actor?: ReservationActor } = {}
 ): Promise<Reservation> {
   const sb = getServiceClient()
@@ -127,9 +143,10 @@ export async function createReservation(
     phone: data.phone,
     email: data.email,
     terms: data.terms,
-    status: 'pending' as ReservationStatus,
+    status: (data.status ?? 'pending') as ReservationStatus,
     notes: data.notes ?? null,
     source: data.source ?? 'unknown',
+    is_walk_in: data.isWalkIn ?? false,
     created_at: now,
     updated_at: now,
   }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   computeAvailability,
   checkSlotAvailability,
@@ -7,6 +7,16 @@ import {
   FloorTable,
   ReservationLike,
 } from '@/lib/capacity'
+import type { ZoneConfig } from '@/lib/zones'
+
+// Test fixture matching the real venue defaults (bar: 14 / max party 4,
+// table: 44 / no per-reservation cap). Kept here instead of importing the
+// fallback from lib/zones so the test isn't coupled to fallback-constant
+// changes — the fixture is the unit under test.
+const ZONES: ZoneConfig = {
+  bar: { capacity: 14, maxPartySize: 4 },
+  table: { capacity: 44, maxPartySize: null },
+}
 
 describe('lib/capacity', () => {
   const mockReservations: ReservationLike[] = [
@@ -30,17 +40,18 @@ describe('lib/capacity', () => {
 
   describe('computeAvailability', () => {
     it('should return correct availability map for a date', () => {
-      const availability = computeAvailability(mockReservations, '2026-04-15')
+      const availability = computeAvailability(mockReservations, '2026-04-15', ZONES)
       expect(availability).toHaveProperty('bar')
       expect(availability).toHaveProperty('table')
       expect(availability).toHaveProperty('capacity')
-      expect(availability.capacity.bar).toBe(999) // default
-      expect(availability.capacity.table).toBe(999) // default
+      expect(availability.capacity.bar).toBe(ZONES.bar.capacity)
+      expect(availability.capacity.table).toBe(ZONES.table.capacity)
+      expect(availability.maxBarParty).toBe(ZONES.bar.maxPartySize)
     })
 
     it('should exclude a reservation by ID', () => {
-      const avail1 = computeAvailability(mockReservations, '2026-04-15')
-      const avail2 = computeAvailability(mockReservations, '2026-04-15', { excludeReservationId: '1' })
+      const avail1 = computeAvailability(mockReservations, '2026-04-15', ZONES)
+      const avail2 = computeAvailability(mockReservations, '2026-04-15', ZONES, { excludeReservationId: '1' })
       // At 19:00, reservation #1 occupies 4 seats in bar
       // So avail2 should have more bar capacity at 19:00
       expect(avail2.bar['19:00']).toBeGreaterThan(avail1.bar['19:00'])
@@ -57,9 +68,20 @@ describe('lib/capacity', () => {
           status: 'cancelled',
         },
       ]
-      const avail = computeAvailability(cancelled, '2026-04-15')
-      // Cancelled should not reduce availability
-      expect(avail.bar['19:00']).toBe(999)
+      const avail = computeAvailability(cancelled, '2026-04-15', ZONES)
+      // Cancelled should not reduce availability — remaining == full capacity.
+      expect(avail.bar['19:00']).toBe(ZONES.bar.capacity)
+    })
+
+    it('honours a custom zone config (e.g. smaller bar)', () => {
+      const tinyBar: ZoneConfig = {
+        bar: { capacity: 6, maxPartySize: 2 },
+        table: { capacity: 44, maxPartySize: null },
+      }
+      const avail = computeAvailability([], '2026-04-15', tinyBar)
+      expect(avail.capacity.bar).toBe(6)
+      expect(avail.maxBarParty).toBe(2)
+      expect(avail.bar['19:00']).toBe(6)
     })
   })
 
@@ -70,13 +92,15 @@ describe('lib/capacity', () => {
         time: '19:00',
         area: 'bar',
         guests: 1,
-      })
+      }, ZONES)
       expect(result).toBeNull()
     })
 
     it('should return error message when over capacity', () => {
+      // Fill the bar to its cap with single-seat bookings — any new booking
+      // at the same slot should get rejected.
       const reservations: ReservationLike[] = []
-      for (let i = 0; i < 1000; i++) {
+      for (let i = 0; i < ZONES.bar.capacity; i++) {
         reservations.push({
           id: `full-${i}`,
           date: '2026-04-15',
@@ -91,19 +115,73 @@ describe('lib/capacity', () => {
         time: '19:00',
         area: 'bar',
         guests: 1,
-      })
+      }, ZONES)
       expect(result).not.toBeNull()
       expect(typeof result).toBe('string')
     })
 
+    it('rejects a bar party larger than maxPartySize (regardless of capacity)', () => {
+      const result = checkSlotAvailability([], {
+        date: '2026-04-15',
+        time: '19:00',
+        area: 'bar',
+        guests: ZONES.bar.maxPartySize + 1,
+      }, ZONES)
+      expect(result).not.toBeNull()
+      expect(result).toContain(String(ZONES.bar.maxPartySize))
+    })
+
+    it('accepts arbitrary HH:MM times (walk-ins)', () => {
+      // Walk-ins may arrive at off-slot times like 20:37. The check should
+      // evaluate zone usage at that exact minute, not require a 15-min slot.
+      const result = checkSlotAvailability([], {
+        date: '2026-04-15',
+        time: '20:37',
+        area: 'table',
+        guests: 2,
+      }, ZONES)
+      expect(result).toBeNull()
+    })
+
+    it('rejects a walk-in when the zone is full at that minute', () => {
+      // 14 bar seats occupied from 19:00..21:00. A walk-in at 20:37 overlaps.
+      const res: ReservationLike[] = [
+        { id: 'a', date: '2026-04-15', time: '19:00', area: 'bar', guests: 14, status: 'confirmed' },
+      ]
+      const result = checkSlotAvailability(res, {
+        date: '2026-04-15',
+        time: '20:37',
+        area: 'bar',
+        guests: 1,
+      }, ZONES)
+      expect(result).not.toBeNull()
+    })
+
+    it('allows a walk-in after the 120-min window clears', () => {
+      // 14 bar seats at 19:00 release at 21:00 sharp. Walk-in at 21:05 is ok.
+      const res: ReservationLike[] = [
+        { id: 'a', date: '2026-04-15', time: '19:00', area: 'bar', guests: 14, status: 'confirmed' },
+      ]
+      const result = checkSlotAvailability(res, {
+        date: '2026-04-15',
+        time: '21:05',
+        area: 'bar',
+        guests: 2,
+      }, ZONES)
+      expect(result).toBeNull()
+    })
+
     it('should exclude reservation ID when checking', () => {
+      // An existing reservation that would fill the bar, but we're editing it
+      // (so it's excluded from the usage sum) — the candidate at the same slot
+      // must still fit.
       const existing: ReservationLike[] = [
         {
           id: 'existing',
           date: '2026-04-15',
           time: '19:00',
           area: 'bar',
-          guests: 995,
+          guests: ZONES.bar.capacity,
           status: 'confirmed',
         },
       ]
@@ -115,6 +193,7 @@ describe('lib/capacity', () => {
           area: 'bar',
           guests: 2,
         },
+        ZONES,
         { excludeReservationId: 'existing' }
       )
       expect(result).toBeNull()

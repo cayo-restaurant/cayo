@@ -1,26 +1,25 @@
 // ─── Venue capacity + availability math ──────────────────────────────────────
 //
-// Capacity numbers live in env vars so they're easy to update without a code
-// change. Until the real seat counts are known, the defaults below are set to
-// a huge number that effectively disables the capacity gate — i.e. the system
-// behaves exactly as it did before this file existed. To turn the gate on,
-// set BAR_CAPACITY and TABLE_CAPACITY in .env.local (and on Vercel).
+// The restaurant is modelled as two capacity zones:
+//   • `bar`   — stools at the bar counter.
+//   • `table` — seats across the window tables + sofa area (fluid between
+//               them; the hostess may move tables around physically, but the
+//               total seat pool for booking purposes is fixed).
 //
-// .env.local example:
-//   BAR_CAPACITY=20
-//   TABLE_CAPACITY=40
-//   RESERVATION_DURATION_MINUTES=120
+// Each reservation occupies `guests` seats in its zone for
+// RESERVATION_DURATION_MINUTES (120 min by default) starting at its `time`.
+// A new reservation is allowed iff the running sum of occupied seats in its
+// zone, during its 120-min window, plus the candidate's guest count, does
+// not exceed the zone capacity.
 //
-// Reservation duration decides how long a booking occupies its seats. A
-// reservation at 19:00 with duration=120 blocks 19:00, 19:15, …, 20:45.
-// 21:00 onward is free again (for those seats).
+// Zone capacity numbers + the per-reservation bar cap live in the `zones` DB
+// table (see lib/zones.ts + supabase-migration-zones.sql) — they used to be
+// env vars, but moved so the owner can tune them live. Functions in this
+// file take a `ZoneConfig` argument so the math stays pure: DB fetching is
+// the caller's job (an API route), and tests can pass a fixture directly.
 
-export const BAR_CAPACITY = Number(process.env.BAR_CAPACITY ?? 999)
-export const TABLE_CAPACITY = Number(process.env.TABLE_CAPACITY ?? 999)
-// Per-reservation cap at the bar: bar bookings are walk-up-style, no party
-// larger than this can be booked together on bar stools. Tables are not
-// constrained per-reservation (only by TABLE_CAPACITY).
-export const MAX_BAR_PARTY = Number(process.env.MAX_BAR_PARTY ?? 3)
+import type { ZoneConfig } from '@/lib/zones'
+
 export const RESERVATION_DURATION_MINUTES = Number(
   process.env.RESERVATION_DURATION_MINUTES ?? 120
 )
@@ -66,55 +65,75 @@ export interface AvailabilityMap {
   bar: Record<string, number>
   table: Record<string, number>
   capacity: { bar: number; table: number }
+  maxBarParty: number
   durationMinutes: number
+}
+
+// Number of guests currently occupying each zone at `time` on `date`.
+// A reservation "occupies" its zone from `time` to `time + duration` and is
+// counted only if its status is in OCCUPYING_STATUSES. Walk-ins count the
+// same way because their status is 'arrived' (one of the occupying set).
+//
+// This is the single source of truth for zone usage. Both the per-slot
+// availability map (customer form) and the single-slot capacity gate
+// (POST /api/reservations, walk-ins) call it.
+export function computeUsageAt(
+  reservations: ReservationLike[],
+  date: string,
+  time: string,
+  opts: { excludeReservationId?: string; durationMinutes?: number } = {},
+): { bar: number; table: number } {
+  const duration = opts.durationMinutes ?? RESERVATION_DURATION_MINUTES
+  const slotMin = timeToMinutes(time)
+  let bar = 0
+  let table = 0
+  for (const r of reservations) {
+    if (r.date !== date) continue
+    if (!OCCUPYING_STATUSES.has(r.status)) continue
+    if (opts.excludeReservationId && r.id === opts.excludeReservationId) continue
+    const start = timeToMinutes(r.time)
+    const end = start + duration
+    // Inclusive start, exclusive end — a reservation at 19:00 with duration
+    // 120 occupies 19:00..20:59 and releases its seats at 21:00 sharp.
+    if (slotMin >= start && slotMin < end) {
+      if (r.area === 'bar') bar += r.guests
+      else table += r.guests
+    }
+  }
+  return { bar, table }
 }
 
 export function computeAvailability(
   reservations: ReservationLike[],
   date: string,
+  config: ZoneConfig,
   opts: { excludeReservationId?: string } = {}
 ): AvailabilityMap {
   const duration = RESERVATION_DURATION_MINUTES
   const bar: Record<string, number> = {}
   const table: Record<string, number> = {}
 
-  const active = reservations.filter(
-    r =>
-      r.date === date &&
-      OCCUPYING_STATUSES.has(r.status) &&
-      (!opts.excludeReservationId || r.id !== opts.excludeReservationId)
-  )
-
   for (const slot of VALID_TIMES) {
-    const slotMin = timeToMinutes(slot)
-    let barUsed = 0
-    let tableUsed = 0
-    for (const r of active) {
-      const start = timeToMinutes(r.time)
-      const end = start + duration
-      if (slotMin >= start && slotMin < end) {
-        if (r.area === 'bar') barUsed += r.guests
-        else tableUsed += r.guests
-      }
-    }
-    bar[slot] = Math.max(0, BAR_CAPACITY - barUsed)
-    table[slot] = Math.max(0, TABLE_CAPACITY - tableUsed)
+    const usage = computeUsageAt(reservations, date, slot, opts)
+    bar[slot] = Math.max(0, config.bar.capacity - usage.bar)
+    table[slot] = Math.max(0, config.table.capacity - usage.table)
   }
 
   return {
     bar,
     table,
-    capacity: { bar: BAR_CAPACITY, table: TABLE_CAPACITY },
+    capacity: { bar: config.bar.capacity, table: config.table.capacity },
+    maxBarParty: config.bar.maxPartySize,
     durationMinutes: duration,
   }
 }
 
 // ── Real-floor capacity (admin floor-load strip) ─────────────────────────────
 //
-// Unlike computeAvailability above (which uses the aggregate BAR_CAPACITY /
-// TABLE_CAPACITY env pool), this function sums the actual `capacity_max` of
-// active restaurant_tables rows. The floor-load strip on the shift screen
-// uses this to show booked vs real seats per 30-min bucket.
+// Unlike computeAvailability above (which uses the zone capacity pool), this
+// function sums the actual `capacity_max` of active restaurant_tables rows.
+// The floor-load strip on the shift screen uses this to show booked vs real
+// seats per 30-min bucket.
 
 export interface FloorTable {
   id: string
@@ -168,24 +187,39 @@ export function computeFloorCapacityAt(
 }
 
 // Single-slot variant used by the POST handler before creating a reservation,
-// and by PATCH to check if an update would violate capacity.
+// and by PATCH to check if an update would violate capacity. Unlike the
+// customer form's AvailabilityMap, this one accepts ANY HH:MM time — walk-ins
+// arrive at arbitrary minutes (e.g. 20:37) and must be capacity-checked
+// at the same zone level.
+//
 // Returns `null` if there's room, or a human-readable Hebrew reason if not.
 export function checkSlotAvailability(
   reservations: ReservationLike[],
   candidate: { date: string; time: string; area: Area; guests: number },
+  config: ZoneConfig,
   opts: { excludeReservationId?: string } = {}
 ): string | null {
   // Per-reservation cap on the bar (independent of total bar capacity).
-  if (candidate.area === 'bar' && candidate.guests > MAX_BAR_PARTY) {
-    return `על הבר אפשר להזמין עד ${MAX_BAR_PARTY} סועדים בלבד. לקבוצה גדולה יותר נא לבחור שולחן.`
+  const barMax = config.bar.maxPartySize
+  if (candidate.area === 'bar' && candidate.guests > barMax) {
+    return `על הבר אפשר להזמין עד ${barMax} סועדים בלבד. לקבוצה גדולה יותר נא לבחור שולחן.`
   }
 
-  const map = computeAvailability(reservations, candidate.date, opts)
-  const remaining =
-    candidate.area === 'bar' ? map.bar[candidate.time] : map.table[candidate.time]
-  if (remaining === undefined) {
+  // Per-reservation cap on table (usually null = no cap, but honour it if set).
+  const tableMax = config.table.maxPartySize
+  if (candidate.area === 'table' && tableMax !== null && candidate.guests > tableMax) {
+    return `לשולחן אפשר להזמין עד ${tableMax} סועדים בלבד.`
+  }
+
+  // Accept any valid HH:MM — walk-ins arrive at 20:37, 22:45, etc.
+  if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(candidate.time)) {
     return 'שעה לא תקינה'
   }
+
+  const usage = computeUsageAt(reservations, candidate.date, candidate.time, opts)
+  const capacity = candidate.area === 'bar' ? config.bar.capacity : config.table.capacity
+  const used = candidate.area === 'bar' ? usage.bar : usage.table
+  const remaining = Math.max(0, capacity - used)
   if (remaining < candidate.guests) {
     if (remaining === 0) {
       return 'אין מקום פנוי בשעה זו. נא לבחור שעה אחרת.'

@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { deleteReservation, updateReservation, getReservation, listReservations, logReservationEvent } from '@/lib/reservations-store'
 import { isAdminRequest, requireAdmin } from '@/lib/admin-auth'
 import { isHostRequest } from '@/lib/host-auth'
-import { VALID_TIMES, computeAvailability, checkSlotAvailability } from '@/lib/capacity'
+import { VALID_TIMES, checkSlotAvailability } from '@/lib/capacity'
+import { getZoneConfig } from '@/lib/zones'
 import { shiftDayLocal } from '@/lib/shift-day'
 import { promoteWaitingListForDate } from '@/lib/auto-assign'
 import { clearAssignments } from '@/lib/assignments-store'
@@ -102,15 +103,18 @@ export async function PATCH(
       const didAreaChange = newArea !== existing.area
       const didGuestsChange = newGuests !== existing.guests
 
-      if ((didDateChange || didTimeChange || didAreaChange || didGuestsChange) && 
+      if ((didDateChange || didTimeChange || didAreaChange || didGuestsChange) &&
           (newStatus === 'pending' || newStatus === 'confirmed' || newStatus === 'arrived')) {
-        const allReservations = await listReservations()
+        const [allReservations, zones] = await Promise.all([
+          listReservations(),
+          getZoneConfig(),
+        ])
         const capacityError = checkSlotAvailability(allReservations, {
           date: newDate,
           time: newTime,
           area: newArea,
           guests: newGuests,
-        }, { excludeReservationId: params.id })
+        }, zones, { excludeReservationId: params.id })
         if (capacityError) {
           return NextResponse.json({ error: capacityError }, { status: 409 })
         }

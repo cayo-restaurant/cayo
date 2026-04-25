@@ -391,6 +391,65 @@ export default function AdminMapPage() {
   const popoverTable = livePopoverId ? tables.find((t) => t.id === livePopoverId) ?? null : null
   const popoverLive = livePopoverId ? liveByTableId.get(livePopoverId) ?? null : null
 
+  // Walk-in handler — called from the LivePopover when the hostess wants to
+  // seat a drop-in guest at the clicked table. Builds an admin-schema payload
+  // (is_walk_in=true, status='arrived') with the table id pinned so the
+  // backend skips auto-assignment. On success, refreshes the live snapshot
+  // and closes the popover.
+  const handleWalkIn = async (
+    guests: number,
+    notes: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!popoverTable) return { ok: false, error: 'לא נבחר שולחן' }
+    const now = new Date()
+    const shiftDay = computeShiftDateStr(now)
+    // Walk-in time is "now" to the minute — the admin schema allows any
+    // HH:MM when is_walk_in=true, so we don't need to round to a 15-min slot.
+    const hh = String(now.getHours()).padStart(2, '0')
+    const mm = String(now.getMinutes()).padStart(2, '0')
+    const time = hh + ':' + mm
+    try {
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: '',
+          date: shiftDay,
+          time,
+          area: popoverTable.area,
+          guests,
+          phone: '',
+          email: '',
+          terms: true,
+          notes: notes || undefined,
+          is_walk_in: true,
+          status: 'arrived',
+          table_ids: [popoverTable.id],
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        return {
+          ok: false,
+          error:
+            typeof body?.error === 'string'
+              ? body.error
+              : 'שגיאה ' + res.status,
+        }
+      }
+      // Refresh the live snapshot so the newly-arrived walk-in appears on
+      // the map without waiting for the 60 s poll, then close the popover.
+      await liveFetchRef.current?.()
+      setLivePopoverId(null)
+      return { ok: true }
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : 'שגיאת רשת',
+      }
+    }
+  }
+
   const advanceStatus = async (reservationId: string, nextStatus: 'confirmed' | 'arrived' | 'completed') => {
     // Optimistic merge so the popover reflects the change before the
     // network round-trip returns.
@@ -743,6 +802,7 @@ export default function AdminMapPage() {
           tableNumber={popoverTable.table_number}
           live={popoverLive}
           onAdvance={advanceStatus}
+          onWalkIn={handleWalkIn}
           onClose={() => setLivePopoverId(null)}
         />
       )}
@@ -754,11 +814,13 @@ function LivePopover({
   tableNumber,
   live,
   onAdvance,
+  onWalkIn,
   onClose,
 }: {
   tableNumber: number
   live: TableLiveState
   onAdvance: (id: string, status: 'confirmed' | 'arrived' | 'completed') => void
+  onWalkIn: (guests: number, notes: string) => Promise<{ ok: boolean; error?: string }>
   onClose: () => void
 }) {
   const dotColor =
@@ -768,6 +830,28 @@ function LivePopover({
   const statusHe: Record<string, string> = {
     pending: 'ממתין', confirmed: 'מאושר', arrived: 'הגיע/ה',
     cancelled: 'בוטל', no_show: 'לא הגיע', completed: 'הסתיים',
+  }
+  // Walk-in form state: guests count + optional note. Shown whenever the
+  // table isn't currently occupied (free or reserved-soon). For reserved_soon
+  // the hostess is making a conscious "time-limited" judgement call and the
+  // upcoming reservation is listed above the form so she can see the deadline.
+  const canWalkIn = live.status !== 'occupied'
+  const [walkInGuests, setWalkInGuests] = useState(2)
+  const [walkInNotes, setWalkInNotes] = useState('')
+  const [walkInSaving, setWalkInSaving] = useState(false)
+  const [walkInError, setWalkInError] = useState<string | null>(null)
+
+  const submitWalkIn = async () => {
+    if (walkInSaving) return
+    setWalkInSaving(true)
+    setWalkInError(null)
+    const res = await onWalkIn(walkInGuests, walkInNotes.trim())
+    setWalkInSaving(false)
+    if (!res.ok) {
+      setWalkInError(res.error || 'שגיאה בהושבה')
+      return
+    }
+    // Parent will close the popover on success; nothing more to do here.
   }
   return (
     <div
@@ -847,6 +931,60 @@ function LivePopover({
             </div>
           ))}
         </div>
+        {canWalkIn && (
+          <div className="border-t border-cayo-burgundy/10 p-4 bg-cayo-cream/50">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-black text-cayo-burgundy">הושבת מזדמנים</h3>
+              {live.next && (
+                <span className="text-xs text-amber-700 font-bold">
+                  הזמנה ב-{live.next.time}
+                </span>
+              )}
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-cayo-burgundy/60 mb-1">
+                  סועדים
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={walkInGuests}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setWalkInGuests(Number.isFinite(n) && n > 0 ? Math.min(10, Math.max(1, n)) : 1)
+                  }}
+                  className="w-full border-2 border-cayo-burgundy/20 rounded-lg px-3 py-2 text-cayo-burgundy font-bold focus:outline-none focus:border-cayo-burgundy"
+                />
+              </div>
+              <div className="flex-[2]">
+                <label className="block text-xs font-bold text-cayo-burgundy/60 mb-1">
+                  הערה <span className="font-normal opacity-60">(אופציונלי)</span>
+                </label>
+                <input
+                  type="text"
+                  value={walkInNotes}
+                  onChange={(e) => setWalkInNotes(e.target.value)}
+                  maxLength={120}
+                  placeholder="למשל: עד 20:15"
+                  className="w-full border-2 border-cayo-burgundy/20 rounded-lg px-3 py-2 text-cayo-burgundy text-sm focus:outline-none focus:border-cayo-burgundy"
+                />
+              </div>
+            </div>
+            {walkInError && (
+              <p className="text-sm text-cayo-red mt-2 text-center">{walkInError}</p>
+            )}
+            <button
+              type="button"
+              onClick={submitWalkIn}
+              disabled={walkInSaving}
+              className="mt-3 w-full py-3 bg-cayo-burgundy text-white font-black rounded-full hover:bg-cayo-burgundy/90 disabled:opacity-50 min-h-[44px]"
+            >
+              {walkInSaving ? 'מושיב...' : 'הושב מזדמנים'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -4,12 +4,18 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import cayoLogo from '../../../cayo_brand_page_005.png'
+import { isSameDayBookingClosed } from '@/lib/shift-day'
 
 // Availability response from GET /api/availability?date=...
 interface AvailabilityResponse {
   bar: Record<string, number>
   table: Record<string, number>
   capacity: { bar: number; table: number }
+  // Per-reservation cap on the bar — comes from the `zones` DB table, not
+  // a hardcoded constant, so the owner can tune it without a code change.
+  // Falls back to 4 in the UI if the response is missing this field (old
+  // server, or fallback path in the API route).
+  maxBarParty?: number
   durationMinutes: number
 }
 
@@ -221,9 +227,12 @@ export default function ReservationPage() {
     return bar < requiredSeats && table < requiredSeats
   }
 
-  // Per-reservation cap at the bar. Kept in sync with MAX_BAR_PARTY in
-  // lib/capacity.ts (server is authoritative).
-  const MAX_BAR_PARTY = 3
+  // Per-reservation cap at the bar — driven by the server's zones config
+  // (returned in the availability response). Falls back to 4 before the
+  // first availability fetch completes, or if the server is on an older
+  // build that doesn't return the field. The server re-checks capacity
+  // on POST regardless, so this is a UX-only cap.
+  const MAX_BAR_PARTY = availability?.maxBarParty ?? 4
 
   // A seating area is disabled (for the currently-chosen slot) if it has no
   // room for the requested group size, or — for the bar — if the party
@@ -240,6 +249,11 @@ export default function ReservationPage() {
     const e: FormErrors = {}
     if (!form.name || form.name.trim().length < 2) e.name = 'נא להזין שם'
     if (!form.date) e.date = 'נא לבחור יום'
+    // Same-day cutoff: after 19:00 Israel time the current shift is locked to
+    // the hostess's manual control; customers must pick a future date.
+    if (form.date && isSameDayBookingClosed(form.date)) {
+      e.date = 'הזמנות לאותו יום נסגרו. נא לבחור תאריך אחר.'
+    }
     if (!form.time) e.time = 'נא לבחור שעה'
     if (!form.area) e.area = 'נא לבחור העדפת ישיבה'
     if (!form.guests || form.guests < 1 || form.guests > 10) e.guests = 'מספר סועדים חייב להיות בין 1 ל-10'
