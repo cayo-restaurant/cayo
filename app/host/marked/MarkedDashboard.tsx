@@ -1,9 +1,11 @@
 'use client'
 
-// Hostess's "already-marked" page. Shows only today's arrived + no_show
-// reservations, so the main /host queue can stay focused on what still needs
-// action. From here the hostess can tap a row to expand it and undo a wrong
-// tap, which flips the status back to `confirmed`.
+// Hostess's "already-marked" page. Shows today's arrived + no_show +
+// completed reservations, so the main /host queue can stay focused on
+// what still needs action. `completed` lands here when the hostess presses
+// "פינו את השולחן" on the map after a guest has left. From here the hostess
+// can tap a row to expand it and undo a wrong tap, which flips the status
+// back to `confirmed`.
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -117,7 +119,11 @@ export default function MarkedDashboard() {
 
   const arrived = enriched.filter(r => r.bucket === 'arrived').sort(byTimeAsc)
   const noShow = enriched.filter(r => r.bucket === 'no_show').sort(byTimeAsc)
-  const marked: Enriched[] = [...arrived, ...noShow]
+  const completed = enriched.filter(r => r.bucket === 'completed').sort(byTimeAsc)
+  // Order: currently-seated (arrived) first — most likely to need action;
+  // then completed (already left, kept around so the hostess can undo a
+  // mis-clear); then no_show last.
+  const marked: Enriched[] = [...arrived, ...completed, ...noShow]
 
   const shiftDate = shiftAdjustedDate(new Date(now))
   const todayLabel = `יום ${HEBREW_DAYS[shiftDate.getDay()]}, ${shiftDate.getDate()} ${HEBREW_MONTHS[shiftDate.getMonth()]}`
@@ -146,7 +152,7 @@ export default function MarkedDashboard() {
 
       <main className="max-w-3xl mx-auto px-5 py-5">
         {/* Summary strip */}
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="mb-4 grid grid-cols-3 gap-2">
           <div className="bg-cayo-teal/5 border-2 border-cayo-teal/30 rounded-xl px-3 py-2.5">
             <p className="text-[10px] font-bold text-cayo-teal/80 uppercase tracking-wider">
               הגיעו
@@ -155,6 +161,17 @@ export default function MarkedDashboard() {
               {arrived.length}
             </p>
             <p className="text-[11px] font-bold text-cayo-teal/70 mt-0.5 leading-tight">
+              הזמנות
+            </p>
+          </div>
+          <div className="bg-cayo-burgundy/5 border-2 border-cayo-burgundy/30 rounded-xl px-3 py-2.5">
+            <p className="text-[10px] font-bold text-cayo-burgundy/80 uppercase tracking-wider">
+              פינו
+            </p>
+            <p className="text-xl font-black mt-0.5 text-cayo-burgundy">
+              {completed.length}
+            </p>
+            <p className="text-[11px] font-bold text-cayo-burgundy/70 mt-0.5 leading-tight">
               הזמנות
             </p>
           </div>

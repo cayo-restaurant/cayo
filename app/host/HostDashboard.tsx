@@ -282,20 +282,21 @@ export default function HostDashboard() {
   const upcomingItems = enriched.filter(r => r.bucket === 'upcoming')
   const arrivedItems = enriched.filter(r => r.bucket === 'arrived')
   const noShowItems = enriched.filter(r => r.bucket === 'no_show')
+  const completedItems = enriched.filter(r => r.bucket === 'completed')
   const otherItems = enriched.filter(r => r.bucket === 'other')
 
   const byTimeAsc = (a: Enriched, b: Enriched) => a.time.localeCompare(b.time)
   const byLateDesc = (a: Enriched, b: Enriched) => b.lateMinutes - a.lateMinutes
 
   // Active list — what the hostess needs to act on. Marked reservations
-  // (arrived / no-show) live on /host/marked instead.
+  // (arrived / no-show / completed-after-clear) live on /host/marked instead.
   const activeList: Enriched[] = [
     ...lateItems.sort(byLateDesc),
     ...soonItems.sort(byTimeAsc),
     ...upcomingItems.sort(byTimeAsc),
     ...otherItems.sort(byTimeAsc),
   ]
-  const markedCount = arrivedItems.length + noShowItems.length
+  const markedCount = arrivedItems.length + noShowItems.length + completedItems.length
 
   // Headline stat — total guests on the books today. Count only reservations
   // the shift actually serves (confirmed/arrived/no_show).

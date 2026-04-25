@@ -12,10 +12,8 @@ import { getZoneConfig } from '@/lib/zones'
 import { shiftDayLocal, isSameDayBookingClosed } from '@/lib/shift-day'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { sendConfirmation } from '@/lib/resend'
-import { autoPickTables, autoAssignUnassigned, promoteWaitingListForDate } from '@/lib/auto-assign'
 import { setAssignments } from '@/lib/assignments-store'
-import { addToWaitingList, claimMatchingWaiting } from '@/lib/waiting-list-store'
-import { getServiceClient } from '@/lib/supabase'
+import { claimMatchingWaiting } from '@/lib/waiting-list-store'
 
 const reservationSchema = z.object({
   name: z.string().min(2, 'נא להזין שם'),
@@ -102,42 +100,12 @@ export async function GET() {
     // Non-fatal: if the sweep fails we still want to serve the list.
   }
 
-  // Background sweep: auto-assign tables to ALL active reservations that
-  // don't have one yet, AND re-scan the waiting list for any date with
-  // pending entries (in case capacity opened up via a path that didn't
-  // trigger event-driven promotion — DELETE, edit, etc.).
-  // Fire-and-forget — don't block the response.
-  void (async () => {
-    try {
-      const sb = getServiceClient()
-      const [{ data: resvDates }, { data: waitDates }] = await Promise.all([
-        sb
-          .from('reservations')
-          .select('date')
-          .in('status', ['pending', 'confirmed', 'arrived'])
-          .gte('date', today),
-        sb
-          .from('waiting_list')
-          .select('requested_date')
-          .eq('auto_assigned', false)
-          .gte('requested_date', today),
-      ])
-      const reservationDates = new Set(
-        (resvDates ?? []).map((r: { date: string }) => r.date),
-      )
-      const waitingDates = new Set(
-        (waitDates ?? []).map((r: { requested_date: string }) => r.requested_date),
-      )
-      // Run promotions FIRST so freshly-promoted reservations aren't then
-      // re-assigned by the unassigned sweep on the same pass.
-      for (const date of waitingDates) {
-        await promoteWaitingListForDate(date).catch(() => {})
-      }
-      for (const date of new Set([...reservationDates, ...waitingDates])) {
-        await autoAssignUnassigned(date).catch(() => {})
-      }
-    } catch { /* non-fatal */ }
-  })()
+  // Background auto-assignment sweep DISABLED. Previously this fire-and-
+  // forget block scanned for unassigned reservations and pending waiting-list
+  // entries on every GET and tried to auto-pick tables for them. The hostess
+  // now owns all table assignment manually from the map, so this sweep is
+  // intentionally removed. To restore: re-add a getServiceClient-based loop
+  // calling promoteWaitingListForDate() and autoAssignUnassigned().
 
   const reservations = await listReservations()
   // Zone config (bar+table capacities + max bar party) is DB-backed and
@@ -295,15 +263,19 @@ export async function POST(request: Request) {
       console.error('[reservations POST] waitlist claim error:', claimErr)
     }
 
-    // Table assignment. Three paths:
-    // 1. Explicit table_ids from the caller (walk-in seated at a specific
-    //    table from the map, or manual override) → use them as-is, skip
-    //    auto-pick and skip waitlisting.
-    // 2. Walk-in without explicit tables → skip auto-assign (the hostess
-    //    is managing the seating manually) and skip the waitlist.
-    // 3. Regular booking → run auto-pick, fall back to the waitlist.
+    // Table assignment. Automatic table assignment is DISABLED — every
+    // reservation is left unassigned for the hostess to seat manually from
+    // the map. The only path that still writes table assignments here is when
+    // the caller (staff, via the admin schema) explicitly passes `table_ids`
+    // — i.e. the hostess clicked a specific table on the map for a walk-in
+    // or manual seating. Public bookings, walk-ins without an explicit table,
+    // and regular admin bookings all flow through with no table assigned and
+    // are NOT added to the waiting list.
+    //
+    // To restore auto-assignment, re-introduce the autoPickTables() call and
+    // the addToWaitingList fallback here, and the background sweep in GET.
     let autoAssigned = false
-    let addedToWaiting = false
+    const addedToWaiting = false
     const explicitTableIds =
       staff && 'table_ids' in parsed.data && Array.isArray(parsed.data.table_ids)
         ? parsed.data.table_ids
@@ -312,35 +284,9 @@ export async function POST(request: Request) {
       if (explicitTableIds.length > 0) {
         await setAssignments(reservation.id, explicitTableIds, explicitTableIds[0])
         autoAssigned = true
-      } else if (!isWalkIn) {
-        const bestTables = await autoPickTables(
-          reservation.date,
-          reservation.time,
-          reservation.guests,
-          reservation.area,
-        )
-        if (bestTables.length > 0) {
-          await setAssignments(
-            reservation.id,
-            bestTables.map(t => t.id),
-            bestTables[0].id,
-          )
-          autoAssigned = true
-        } else {
-          // No table available - add to waiting list for all bookings (staff included).
-          await addToWaitingList({
-            name: reservation.name,
-            phone: reservation.phone,
-            guests: reservation.guests,
-            area: reservation.area,
-            requestedDate: reservation.date,
-            requestedTime: reservation.time,
-          })
-          addedToWaiting = true
-        }
       }
     } catch (assignErr) {
-      console.error('[reservations POST] auto-assign error:', assignErr)
+      console.error('[reservations POST] explicit-assignment error:', assignErr)
     }
 
     return NextResponse.json({ success: true, id: reservation.id, autoAssigned, addedToWaiting })

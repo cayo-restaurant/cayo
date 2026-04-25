@@ -169,7 +169,7 @@ export function minutesDiff(a: number, b: number): number {
   return Math.round((a - b) / 60000)
 }
 
-export type Bucket = 'late' | 'soon' | 'upcoming' | 'arrived' | 'no_show' | 'other'
+export type Bucket = 'late' | 'soon' | 'upcoming' | 'arrived' | 'no_show' | 'completed' | 'other'
 
 export interface Enriched extends Reservation {
   scheduled: Date
@@ -258,10 +258,15 @@ export function bucketOf(r: Reservation, now: number): { bucket: Bucket; lateMin
 
   if (r.status === 'arrived') return { bucket: 'arrived', lateMinutes: 0 }
   if (r.status === 'no_show') return { bucket: 'no_show', lateMinutes: 0 }
-  if (r.status === 'cancelled' || r.status === 'pending' || r.status === 'completed') {
-    // Completed reservations already left — they don't belong in any of the
-    // active hostess buckets. Route them to "other" so the host views ignore
-    // them just like cancelled/pending.
+  if (r.status === 'completed') {
+    // Completed = the hostess freed the table on the map after the guest
+    // left. These belong in the "marked" view alongside arrived/no-show,
+    // not in the active hostess list.
+    return { bucket: 'completed', lateMinutes: 0 }
+  }
+  if (r.status === 'cancelled' || r.status === 'pending') {
+    // Cancelled / pending: not actionable from hostess view. Route to "other"
+    // so the host views ignore them.
     return { bucket: 'other', lateMinutes: 0 }
   }
   // status === 'confirmed' from here
