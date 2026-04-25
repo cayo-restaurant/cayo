@@ -86,11 +86,14 @@ export const ZONE_LABEL: Record<Zone, string> = {
 }
 
 // Order zones appear in every picker (right-to-left reading: ויטרינה first).
-export const ZONE_ORDER: Zone[] = ['window', 'sofas', 'bar', 'other']
+// The 'other' zone is intentionally excluded — any table that falls outside the
+// defined ranges still gets the 'other' tag from tableZone() so nothing crashes,
+// but it won't render its own chip in the picker.
+export const ZONE_ORDER: Zone[] = ['window', 'sofas', 'bar']
 
 export function tableZone(tableNumber: number): Zone {
   if (tableNumber >= 1 && tableNumber <= 15) return 'window'
-  if (tableNumber >= 20 && tableNumber <= 25) return 'sofas'
+  if (tableNumber >= 20 && tableNumber <= 26) return 'sofas'
   if (tableNumber >= 101 && tableNumber <= 110) return 'bar'
   return 'other'
 }
@@ -580,10 +583,11 @@ export function ReservationDetailModal({
 
 
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
-  const [tableSaving, setTableSaving] = useState(false)
-  const [tableError, setTableError] = useState('')
   // Multi-table selection — initialised from the current assignment so the
   // hostess sees what's already booked and can add / remove tables.
+  // The selection is local until the hostess clicks "שמור שינויים" at the
+  // bottom of the modal — at which point save() persists both the
+  // reservation fields and the table assignment in one go.
   const [selectedTableIds, setSelectedTableIds] = useState<Set<string>>(
     () => new Set(r.tables.map(t => t.id))
   )
@@ -619,36 +623,6 @@ export function ReservationDetailModal({
       .reduce((s, t) => s + t.capacityMax, 0)
   const capacityOk = selectedTableIds.size === 0 || selectedCapacity >= guests
 
-  async function saveTableAssignment() {
-    const ids = [...selectedTableIds]
-    setTableSaving(true)
-    setTableError('')
-    try {
-      if (ids.length === 0) {
-        await fetch(`/api/reservations/${r.id}/tables`, { method: 'DELETE' })
-        onSaved({ tables: [] })
-      } else {
-        const res = await fetch(`/api/reservations/${r.id}/tables`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tableIds: ids, primaryTableId: ids[0] }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          setTableError(data.error || 'שגיאה בשמירה')
-          return
-        }
-        const data = await res.json()
-        onSaved({ tables: data.tables || [] })
-      }
-      setTablePickerOpen(false)
-    } catch {
-      setTableError('שגיאה בחיבור')
-    } finally {
-      setTableSaving(false)
-    }
-  }
-
   function cancelEdit() {
     setEditing(false)
     setSaveError('')
@@ -665,6 +639,14 @@ export function ReservationDetailModal({
     setSaving(true)
     setSaveError('')
     try {
+      // Capacity guard — block saving an underseated combo so the hostess
+      // doesn't accidentally commit a 4-top reservation to a 2-seat table.
+      if (selectedTableIds.size > 0 && !capacityOk) {
+        setSaveError(`קיבולת השולחנות לא מספיקה (${selectedCapacity}/${guests})`)
+        return
+      }
+
+      // 1) Save the reservation fields.
       const res = await fetch(`/api/reservations/${r.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -678,8 +660,47 @@ export function ReservationDetailModal({
         setSaveError('שגיאה בשמירה, נסי שוב')
         return
       }
-      onSaved({ name, guests, area, time, phone, notes, internalNotes })
+
+      // 2) Save the table assignment if the hostess changed it inside this
+      // modal. Compare against r.tables so untouched reservations skip the
+      // extra round-trip.
+      const currentIds = new Set(r.tables.map(t => t.id))
+      const tablesChanged =
+        currentIds.size !== selectedTableIds.size ||
+        [...selectedTableIds].some(id => !currentIds.has(id))
+
+      let updatedTables: AssignedTable[] | undefined
+      if (tablesChanged) {
+        const ids = [...selectedTableIds]
+        if (ids.length === 0) {
+          const delRes = await fetch(`/api/reservations/${r.id}/tables`, { method: 'DELETE' })
+          if (!delRes.ok) {
+            setSaveError('שגיאה בעדכון השולחנות')
+            return
+          }
+          updatedTables = []
+        } else {
+          const tRes = await fetch(`/api/reservations/${r.id}/tables`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tableIds: ids, primaryTableId: ids[0] }),
+          })
+          if (!tRes.ok) {
+            const data = await tRes.json().catch(() => ({}))
+            setSaveError(data.error || 'שגיאה בעדכון השולחנות')
+            return
+          }
+          const data = await tRes.json()
+          updatedTables = data.tables || []
+        }
+      }
+
+      onSaved({
+        name, guests, area, time, phone, notes, internalNotes,
+        ...(updatedTables !== undefined ? { tables: updatedTables } : {}),
+      })
       setEditing(false)
+      setTablePickerOpen(false)
     } catch {
       setSaveError('אין חיבור לשרת')
     } finally {
@@ -778,12 +799,23 @@ export function ReservationDetailModal({
             <ModalField label="שולחן">
               <div>
                 <button
-                  onClick={e => { e.stopPropagation(); setTablePickerOpen(o => !o); setTableError('') }}
+                  onClick={e => { e.stopPropagation(); setTablePickerOpen(o => !o) }}
                   className="text-sm font-black text-cayo-burgundy underline decoration-dotted"
                 >
-                  {r.tables.length > 0
-                    ? r.tables.map(t => t.tableNumber).sort((a, b) => a - b).join(', ')
-                    : '—'}
+                  {(() => {
+                    // Show the *pending* selection so the hostess sees what
+                    // she's about to commit when she taps "שמור שינויים",
+                    // not the (now-stale) server state.
+                    const numbers: number[] = []
+                    selectedTableIds.forEach(id => {
+                      const fromAvail = availableTables.find(x => x.id === id)
+                      if (fromAvail) { numbers.push(fromAvail.table_number); return }
+                      const existing = r.tables.find(x => x.id === id)
+                      if (existing) numbers.push(existing.tableNumber)
+                    })
+                    numbers.sort((a, b) => a - b)
+                    return numbers.length > 0 ? numbers.join(', ') : '—'
+                  })()}
                 </button>
                 {tablePickerOpen && (
                   <div className="mt-2">
@@ -831,8 +863,7 @@ export function ReservationDetailModal({
                                         return next
                                       })
                                     }}
-                                    disabled={tableSaving}
-                                    className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors disabled:opacity-50
+                                    className={`w-9 h-9 rounded-lg border-2 text-sm font-black transition-colors
                                       ${isSel
                                         ? 'bg-cayo-burgundy text-white border-cayo-burgundy'
                                         : 'border-cayo-burgundy/20 text-cayo-burgundy hover:bg-cayo-burgundy hover:text-white'}`}
@@ -843,27 +874,17 @@ export function ReservationDetailModal({
                               })}
                           </div>
                         )}
-                        {/* Capacity indicator + save */}
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          {selectedTableIds.size > 0 ? (
-                            <span className={`text-xs font-bold ${capacityOk ? 'text-cayo-teal' : 'text-cayo-red'}`}>
-                              {capacityOk
-                                ? `קיבולת: ${selectedCapacity} ✓`
-                                : `קיבולת: ${selectedCapacity}/${guests} ⚠`}
-                            </span>
-                          ) : <span />}
-                          <button
-                            onClick={e => { e.stopPropagation(); saveTableAssignment() }}
-                            disabled={tableSaving || (selectedTableIds.size > 0 && !capacityOk)}
-                            className="text-xs font-black text-white bg-cayo-tealDark px-3 py-1 rounded-lg disabled:opacity-40 hover:opacity-90 transition"
-                          >
-                            {tableSaving ? '...' : 'שמור'}
-                          </button>
-                        </div>
+                        {/* Capacity indicator only — actual persistence happens
+                            when the hostess taps "שמור שינויים" at the bottom
+                            of the modal. */}
+                        {selectedTableIds.size > 0 && (
+                          <p className={`mt-2 text-xs font-bold text-center ${capacityOk ? 'text-cayo-teal' : 'text-cayo-red'}`}>
+                            {capacityOk
+                              ? `קיבולת: ${selectedCapacity} ✓`
+                              : `קיבולת: ${selectedCapacity}/${guests} ⚠`}
+                          </p>
+                        )}
                       </>
-                    )}
-                    {tableError && (
-                      <p className="text-xs font-bold text-cayo-red mt-1.5">{tableError}</p>
                     )}
                   </div>
                 )}
@@ -1132,4 +1153,3 @@ export function ModalField({ label, children }: { label: string; children: React
     </div>
   )
 }
-
