@@ -612,16 +612,11 @@ export function ReservationDetailModal({
     })
   }).sort((a, b) => a.table_number - b.table_number)
 
-  // Combined capacity of currently-selected tables (from availableTables or
-  // from the existing assignment if the table is no longer in availableTables).
-  const selectedCapacity =
-    availableTables
-      .filter(t => selectedTableIds.has(t.id))
-      .reduce((s, t) => s + t.capacity_max, 0) +
-    r.tables
-      .filter(t => !availableTables.some(at => at.id === t.id) && selectedTableIds.has(t.id))
-      .reduce((s, t) => s + t.capacityMax, 0)
-  const capacityOk = selectedTableIds.size === 0 || selectedCapacity >= guests
+  // Capacity is intentionally not enforced — the hostess is allowed to
+  // assign any combination of tables regardless of seat count. The server
+  // endpoint is permissive by design (see app/api/reservations/[id]/tables);
+  // the UI used to gate this with a warning + save-block, which got in the
+  // way of legitimate manual overrides.
 
   function cancelEdit() {
     setEditing(false)
@@ -639,13 +634,6 @@ export function ReservationDetailModal({
     setSaving(true)
     setSaveError('')
     try {
-      // Capacity guard — block saving an underseated combo so the hostess
-      // doesn't accidentally commit a 4-top reservation to a 2-seat table.
-      if (selectedTableIds.size > 0 && !capacityOk) {
-        setSaveError(`קיבולת השולחנות לא מספיקה (${selectedCapacity}/${guests})`)
-        return
-      }
-
       // 1) Save the reservation fields.
       const res = await fetch(`/api/reservations/${r.id}`, {
         method: 'PATCH',
@@ -874,16 +862,10 @@ export function ReservationDetailModal({
                               })}
                           </div>
                         )}
-                        {/* Capacity indicator only — actual persistence happens
-                            when the hostess taps "שמור שינויים" at the bottom
-                            of the modal. */}
-                        {selectedTableIds.size > 0 && (
-                          <p className={`mt-2 text-xs font-bold text-center ${capacityOk ? 'text-cayo-teal' : 'text-cayo-red'}`}>
-                            {capacityOk
-                              ? `קיבולת: ${selectedCapacity} ✓`
-                              : `קיבולת: ${selectedCapacity}/${guests} ⚠`}
-                          </p>
-                        )}
+                        {/* Capacity indicator removed — the hostess can
+                            assign any combination of tables regardless of
+                            seat count. Persistence still happens when she
+                            taps "שמור שינויים" at the bottom of the modal. */}
                       </>
                     )}
                   </div>
