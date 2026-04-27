@@ -12,12 +12,30 @@ const heebo = Heebo({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://www.cayobar.com'),
   title: 'CAYO | בר קוקטיילים',
-  description: 'CAYO - בר קוקטיילים טרופי בתל אביב. חוויה ייחודית בהשראה קובנית.',
+  description: 'CAYO - בר קוקטיילים ברמת השרון, בהשראה קובנית.',
   openGraph: {
     title: 'CAYO | בר קוקטיילים',
     description: 'חוויה קולינרית ייחודית בהשראה קובנית',
     type: 'website',
+    url: 'https://www.cayobar.com',
+    siteName: 'CAYO',
+    locale: 'he_IL',
+    images: [
+      {
+        url: '/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'CAYO — מסעדה ובר, תל אביב',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'CAYO | בר קוקטיילים',
+    description: 'חוויה קולינרית ייחודית בהשראה קובנית',
+    images: ['/og-image.jpg'],
   },
 }
 

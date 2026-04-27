@@ -1,0 +1,416 @@
+{
+  "started_at": "2026-04-27T13:08:02.701090+00:00",
+  "finished_at": "2026-04-27T13:08:14.696512+00:00",
+  "date": "2026-04-27",
+  "base_url": "https://www.cayobar.com",
+  "summary": {
+    "routes_total": 25,
+    "probed": 25,
+    "skipped": 0,
+    "high_severity": 1,
+    "medium_severity": 1,
+    "info": 23
+  },
+  "probes": [
+    {
+      "path": "/api/admin/dashboard",
+      "url": "https://www.cayobar.com/api/admin/dashboard",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/dashboard",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 679,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/admin/login",
+      "url": "https://www.cayobar.com/api/admin/login",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/login",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 506,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/admin/logout",
+      "url": "https://www.cayobar.com/api/admin/logout",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/logout",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 518,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/admin/map/tables/[id]",
+      "url": "https://www.cayobar.com/api/admin/map/tables/00000000-0000-0000-0000-000000000000",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/map/tables/00000000-0000-0000-0000-000000000000",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 344,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/admin/map/tables",
+      "url": "https://www.cayobar.com/api/admin/map/tables",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/map/tables",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 354,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/admin/session",
+      "url": "https://www.cayobar.com/api/admin/session",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/session",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 370,
+        "ok": true,
+        "body_preview": "{\"authenticated\":false}"
+      },
+      "verdict": "auth_bypass_suspect",
+      "severity": "high",
+      "reason": "מסלול מוגן החזיר 200 ללא auth — חשד לדליפת מידע או auth bypass."
+    },
+    {
+      "path": "/api/admin/stream",
+      "url": "https://www.cayobar.com/api/admin/stream",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/admin/stream",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 340,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/auth/[...nextauth]",
+      "url": "https://www.cayobar.com/api/auth/session",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/auth/session",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 354,
+        "ok": true,
+        "body_preview": "{}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "סטטוס 200 צפוי במסלול ציבורי."
+    },
+    {
+      "path": "/api/availability",
+      "url": "https://www.cayobar.com/api/availability",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/availability",
+        "method": "GET",
+        "status": 400,
+        "elapsed_ms": 637,
+        "ok": true,
+        "body_preview": "{\"error\":\"תאריך לא תקין\"}"
+      },
+      "verdict": "unexpected",
+      "severity": "medium",
+      "reason": "קוד תגובה לא צפוי: 400"
+    },
+    {
+      "path": "/api/employees/[id]",
+      "url": "https://www.cayobar.com/api/employees/00000000-0000-0000-0000-000000000000",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/employees/00000000-0000-0000-0000-000000000000",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 551,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/employees",
+      "url": "https://www.cayobar.com/api/employees",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/employees",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 534,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/host/login",
+      "url": "https://www.cayobar.com/api/host/login",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/host/login",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 502,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/host/logout",
+      "url": "https://www.cayobar.com/api/host/logout",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/host/logout",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 523,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/host/me",
+      "url": "https://www.cayobar.com/api/host/me",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/host/me",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 387,
+        "ok": true,
+        "body_preview": "{\"error\":\"unauthenticated\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/ping",
+      "url": "https://www.cayobar.com/api/ping",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/ping",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 497,
+        "ok": true,
+        "body_preview": "{\"ok\":true}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "סטטוס 200 צפוי במסלול ציבורי."
+    },
+    {
+      "path": "/api/reservations/[id]",
+      "url": "https://www.cayobar.com/api/reservations/00000000-0000-0000-0000-000000000000",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/reservations/00000000-0000-0000-0000-000000000000",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 334,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/reservations/[id]/tables",
+      "url": "https://www.cayobar.com/api/reservations/00000000-0000-0000-0000-000000000000/tables",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/reservations/00000000-0000-0000-0000-000000000000/tables",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 688,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/reservations",
+      "url": "https://www.cayobar.com/api/reservations",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/reservations",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 331,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/shifts/[id]",
+      "url": "https://www.cayobar.com/api/shifts/00000000-0000-0000-0000-000000000000",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/shifts/00000000-0000-0000-0000-000000000000",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 497,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/shifts/export",
+      "url": "https://www.cayobar.com/api/shifts/export",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/shifts/export",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 528,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/shifts",
+      "url": "https://www.cayobar.com/api/shifts",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/shifts",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 350,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/staff/rota",
+      "url": "https://www.cayobar.com/api/staff/rota",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/staff/rota",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 517,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/staff/shift-requests",
+      "url": "https://www.cayobar.com/api/staff/shift-requests",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/staff/shift-requests",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 575,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    },
+    {
+      "path": "/api/waiting-list/[id]",
+      "url": "https://www.cayobar.com/api/waiting-list/00000000-0000-0000-0000-000000000000",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/waiting-list/00000000-0000-0000-0000-000000000000",
+        "method": "GET",
+        "status": 405,
+        "elapsed_ms": 604,
+        "ok": true,
+        "body_preview": ""
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "405 - שיטה לא מותרת, צפוי."
+    },
+    {
+      "path": "/api/waiting-list",
+      "url": "https://www.cayobar.com/api/waiting-list",
+      "method": "GET",
+      "response": {
+        "url": "https://www.cayobar.com/api/waiting-list",
+        "method": "GET",
+        "status": 401,
+        "elapsed_ms": 360,
+        "ok": true,
+        "body_preview": "{\"error\":\"לא מורשה\"}"
+      },
+      "verdict": "ok",
+      "severity": "info",
+      "reason": "מסלול מוגן דחה ב-401 — כצפוי."
+    }
+  ]
+}

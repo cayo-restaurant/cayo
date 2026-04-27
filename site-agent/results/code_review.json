@@ -1,0 +1,285 @@
+{
+  "started_at": "2026-04-27T13:22:36.377904+00:00",
+  "finished_at": "2026-04-27T13:22:36.778266+00:00",
+  "date": "2026-04-27",
+  "scanned": {
+    "files_total": 59,
+    "ts": 41,
+    "tsx": 18
+  },
+  "summary": {
+    "findings_total": 11,
+    "by_severity": {
+      "high": 5,
+      "medium": 5,
+      "low": 1,
+      "info": 0
+    },
+    "new_today": 11,
+    "closed_since_yesterday": 0,
+    "console_calls_total": 9
+  },
+  "findings": [
+    {
+      "id": "CR3-app/api/admin/logout/route.ts-POST",
+      "rule": "CR3",
+      "severity": "high",
+      "file": "app/api/admin/logout/route.ts",
+      "line_hint": 5,
+      "title": "חסרה בדיקת auth ב-POST של app/api/admin/logout/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR3-app/api/host/logout/route.ts-POST",
+      "rule": "CR3",
+      "severity": "high",
+      "file": "app/api/host/logout/route.ts",
+      "line_hint": 4,
+      "title": "חסרה בדיקת auth ב-POST של app/api/host/logout/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR1-app/api/reservations/[id]/tables/route.ts-POST-119",
+      "rule": "CR1",
+      "severity": "high",
+      "file": "app/api/reservations/[id]/tables/route.ts",
+      "line_hint": 119,
+      "title": "TOCTOU: listActiveTables ואז כתיבה ללא נעילה ב-POST",
+      "detail": "בפונקציה POST של app/api/reservations/[id]/tables/route.ts מתבצעת קריאה ואז כתיבה ללא טרנזקציה. תחת קריאות במקביל, שתי בקשות יכולות לעבור את הבדיקה ולכתוב ערכים סותרים.",
+      "snippet": "f (uniqueTableIds.length > 0) {\n    const allTables = await listActiveTables()\n    const activeIds = new Set(allTables.map(t => t.id))\n    const missing = uniqueTableIds.find(id => !activeIds.has(id))\n    if (missing) {\n      return NextResponse.json(",
+      "is_new": true
+    },
+    {
+      "id": "CR1-app/api/reservations/route.ts-POST-201",
+      "rule": "CR1",
+      "severity": "high",
+      "file": "app/api/reservations/route.ts",
+      "line_hint": 201,
+      "title": "TOCTOU: listReservations ואז כתיבה ללא נעילה ב-POST",
+      "detail": "בפונקציה POST של app/api/reservations/route.ts מתבצעת קריאה ואז כתיבה ללא טרנזקציה. תחת קריאות במקביל, שתי בקשות יכולות לעבור את הבדיקה ולכתוב ערכים סותרים.",
+      "snippet": "g).\n    const [existing, zones] = await Promise.all([\n      listReservations(),\n      getZoneConfig(),\n    ])\n    const capacityError = checkSlotAvailability(existing, {\n      date: parsed.data.date,\n      time: parsed.data.time,\n      area: parsed.data.area,",
+      "is_new": true
+    },
+    {
+      "id": "CR2-lib/assignments-store.ts-(module)-146",
+      "rule": "CR2",
+      "severity": "high",
+      "file": "lib/assignments-store.ts",
+      "line_hint": 146,
+      "title": "DELETE-then-INSERT ללא טרנזקציה ב-(module)",
+      "detail": "בפונקציה (module) של lib/assignments-store.ts יש .delete(...) ואז .insert(...) ללא טרנזקציה. זהו הדפוס שמאפשר כפל-שיוך תחת קריאות מקביליות.",
+      "snippet": "rr } = await sb\n    .from(JUNCTION)\n    .delete()\n    .eq('reservation_id', reservationId)\n  if (delErr) throw delErr\n\n  if (tableIds.length === 0) return\n\n  // 2) Insert the new set.\n  const rows = tableIds.map(tableId => ({\n    reservation_id: reservationId,\n    table_id: table",
+      "is_new": true
+    },
+    {
+      "id": "CR3-app/api/reservations/[id]/tables/route.ts-POST",
+      "rule": "CR3",
+      "severity": "medium",
+      "file": "app/api/reservations/[id]/tables/route.ts",
+      "line_hint": 83,
+      "title": "חסרה בדיקת auth ב-POST של app/api/reservations/[id]/tables/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR3-app/api/reservations/[id]/tables/route.ts-DELETE",
+      "rule": "CR3",
+      "severity": "medium",
+      "file": "app/api/reservations/[id]/tables/route.ts",
+      "line_hint": 149,
+      "title": "חסרה בדיקת auth ב-DELETE של app/api/reservations/[id]/tables/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR3-app/api/staff/shift-requests/route.ts-GET",
+      "rule": "CR3",
+      "severity": "medium",
+      "file": "app/api/staff/shift-requests/route.ts",
+      "line_hint": 28,
+      "title": "חסרה בדיקת auth ב-GET של app/api/staff/shift-requests/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR3-app/api/staff/shift-requests/route.ts-PUT",
+      "rule": "CR3",
+      "severity": "medium",
+      "file": "app/api/staff/shift-requests/route.ts",
+      "line_hint": 67,
+      "title": "חסרה בדיקת auth ב-PUT של app/api/staff/shift-requests/route.ts",
+      "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "DUP-WAITLIST",
+      "rule": "CR1",
+      "severity": "medium",
+      "file": "lib/waiting-list-store.ts",
+      "line_hint": 88,
+      "title": "אורח עלול להיות גם ברשימת המתנה וגם עם הזמנה מאושרת",
+      "detail": "addToWaitingList לא בודק שלאורח אין כבר הזמנה פעילה לאותו תאריך/שעה. תיקון: בדיקת אורח מול listReservations באותו slot, או UNIQUE constraint.",
+      "snippet": "",
+      "is_new": true
+    },
+    {
+      "id": "CR5-app/api/shifts/route.ts-21",
+      "rule": "CR5",
+      "severity": "low",
+      "file": "app/api/shifts/route.ts",
+      "line_hint": 21,
+      "title": "XXX: (ללא טקסט)",
+      "detail": "XXX שדורש מעקב.",
+      "snippet": "2026-04&employee_id=xxx\nexport async function GET(req: NextRequest) {\n  const denie",
+      "is_new": true
+    }
+  ],
+  "findings_by_file": {
+    "app/api/admin/logout/route.ts": [
+      {
+        "id": "CR3-app/api/admin/logout/route.ts-POST",
+        "rule": "CR3",
+        "severity": "high",
+        "file": "app/api/admin/logout/route.ts",
+        "line_hint": 5,
+        "title": "חסרה בדיקת auth ב-POST של app/api/admin/logout/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      }
+    ],
+    "app/api/host/logout/route.ts": [
+      {
+        "id": "CR3-app/api/host/logout/route.ts-POST",
+        "rule": "CR3",
+        "severity": "high",
+        "file": "app/api/host/logout/route.ts",
+        "line_hint": 4,
+        "title": "חסרה בדיקת auth ב-POST של app/api/host/logout/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      }
+    ],
+    "app/api/reservations/[id]/tables/route.ts": [
+      {
+        "id": "CR1-app/api/reservations/[id]/tables/route.ts-POST-119",
+        "rule": "CR1",
+        "severity": "high",
+        "file": "app/api/reservations/[id]/tables/route.ts",
+        "line_hint": 119,
+        "title": "TOCTOU: listActiveTables ואז כתיבה ללא נעילה ב-POST",
+        "detail": "בפונקציה POST של app/api/reservations/[id]/tables/route.ts מתבצעת קריאה ואז כתיבה ללא טרנזקציה. תחת קריאות במקביל, שתי בקשות יכולות לעבור את הבדיקה ולכתוב ערכים סותרים.",
+        "snippet": "f (uniqueTableIds.length > 0) {\n    const allTables = await listActiveTables()\n    const activeIds = new Set(allTables.map(t => t.id))\n    const missing = uniqueTableIds.find(id => !activeIds.has(id))\n    if (missing) {\n      return NextResponse.json(",
+        "is_new": true
+      },
+      {
+        "id": "CR3-app/api/reservations/[id]/tables/route.ts-POST",
+        "rule": "CR3",
+        "severity": "medium",
+        "file": "app/api/reservations/[id]/tables/route.ts",
+        "line_hint": 83,
+        "title": "חסרה בדיקת auth ב-POST של app/api/reservations/[id]/tables/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      },
+      {
+        "id": "CR3-app/api/reservations/[id]/tables/route.ts-DELETE",
+        "rule": "CR3",
+        "severity": "medium",
+        "file": "app/api/reservations/[id]/tables/route.ts",
+        "line_hint": 149,
+        "title": "חסרה בדיקת auth ב-DELETE של app/api/reservations/[id]/tables/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      }
+    ],
+    "app/api/reservations/route.ts": [
+      {
+        "id": "CR1-app/api/reservations/route.ts-POST-201",
+        "rule": "CR1",
+        "severity": "high",
+        "file": "app/api/reservations/route.ts",
+        "line_hint": 201,
+        "title": "TOCTOU: listReservations ואז כתיבה ללא נעילה ב-POST",
+        "detail": "בפונקציה POST של app/api/reservations/route.ts מתבצעת קריאה ואז כתיבה ללא טרנזקציה. תחת קריאות במקביל, שתי בקשות יכולות לעבור את הבדיקה ולכתוב ערכים סותרים.",
+        "snippet": "g).\n    const [existing, zones] = await Promise.all([\n      listReservations(),\n      getZoneConfig(),\n    ])\n    const capacityError = checkSlotAvailability(existing, {\n      date: parsed.data.date,\n      time: parsed.data.time,\n      area: parsed.data.area,",
+        "is_new": true
+      }
+    ],
+    "app/api/shifts/route.ts": [
+      {
+        "id": "CR5-app/api/shifts/route.ts-21",
+        "rule": "CR5",
+        "severity": "low",
+        "file": "app/api/shifts/route.ts",
+        "line_hint": 21,
+        "title": "XXX: (ללא טקסט)",
+        "detail": "XXX שדורש מעקב.",
+        "snippet": "2026-04&employee_id=xxx\nexport async function GET(req: NextRequest) {\n  const denie",
+        "is_new": true
+      }
+    ],
+    "app/api/staff/shift-requests/route.ts": [
+      {
+        "id": "CR3-app/api/staff/shift-requests/route.ts-GET",
+        "rule": "CR3",
+        "severity": "medium",
+        "file": "app/api/staff/shift-requests/route.ts",
+        "line_hint": 28,
+        "title": "חסרה בדיקת auth ב-GET של app/api/staff/shift-requests/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      },
+      {
+        "id": "CR3-app/api/staff/shift-requests/route.ts-PUT",
+        "rule": "CR3",
+        "severity": "medium",
+        "file": "app/api/staff/shift-requests/route.ts",
+        "line_hint": 67,
+        "title": "חסרה בדיקת auth ב-PUT של app/api/staff/shift-requests/route.ts",
+        "detail": "לא נמצאה קריאה לאחת מהפונקציות: requireAdmin, requireHost, isAdminRequest, isHostRequest, getServerSession, getHostSession, verifyHostCookie, canAccess. יש לוודא שהמסלול דורש זיהוי או להוסיפו ל-PUBLIC_API_ALLOWLIST / INDIRECT_AUTH_ALLOWLIST.",
+        "snippet": "",
+        "is_new": true
+      }
+    ],
+    "lib/assignments-store.ts": [
+      {
+        "id": "CR2-lib/assignments-store.ts-(module)-146",
+        "rule": "CR2",
+        "severity": "high",
+        "file": "lib/assignments-store.ts",
+        "line_hint": 146,
+        "title": "DELETE-then-INSERT ללא טרנזקציה ב-(module)",
+        "detail": "בפונקציה (module) של lib/assignments-store.ts יש .delete(...) ואז .insert(...) ללא טרנזקציה. זהו הדפוס שמאפשר כפל-שיוך תחת קריאות מקביליות.",
+        "snippet": "rr } = await sb\n    .from(JUNCTION)\n    .delete()\n    .eq('reservation_id', reservationId)\n  if (delErr) throw delErr\n\n  if (tableIds.length === 0) return\n\n  // 2) Insert the new set.\n  const rows = tableIds.map(tableId => ({\n    reservation_id: reservationId,\n    table_id: table",
+        "is_new": true
+      }
+    ],
+    "lib/waiting-list-store.ts": [
+      {
+        "id": "DUP-WAITLIST",
+        "rule": "CR1",
+        "severity": "medium",
+        "file": "lib/waiting-list-store.ts",
+        "line_hint": 88,
+        "title": "אורח עלול להיות גם ברשימת המתנה וגם עם הזמנה מאושרת",
+        "detail": "addToWaitingList לא בודק שלאורח אין כבר הזמנה פעילה לאותו תאריך/שעה. תיקון: בדיקת אורח מול listReservations באותו slot, או UNIQUE constraint.",
+        "snippet": "",
+        "is_new": true
+      }
+    ]
+  },
+  "closed_ids": []
+}

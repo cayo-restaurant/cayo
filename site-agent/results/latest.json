@@ -1,0 +1,125 @@
+{
+  "started_at": "2026-04-27T13:07:19.268628+00:00",
+  "finished_at": "2026-04-27T13:07:19.597905+00:00",
+  "url": "https://www.cayobar.com",
+  "date": "2026-04-27",
+  "overall": "fail",
+  "summary": {
+    "functional_passed": 12,
+    "functional_total": 13,
+    "performance_score_mobile": null,
+    "performance_score_desktop": null,
+    "accessibility_score_mobile": null,
+    "accessibility_score_desktop": null,
+    "visual_status": "skipped"
+  },
+  "functional": {
+    "url_final": "https://www.cayobar.com",
+    "status": 200,
+    "elapsed_ms": 313,
+    "title": "CAYO | בקרוב",
+    "lang": "he",
+    "meta_description": "CAYO — מסעדה ובר. פתיחה בקרוב.",
+    "og_title": "CAYO | בר קוקטיילים",
+    "og_image": null,
+    "h1": [
+      "CAYO"
+    ],
+    "h2": [],
+    "link_count": 0,
+    "image_count": 0,
+    "body_text_len": 77,
+    "body_text": "CAYO מסעדה ובר · בקרוב אנחנו עובדים על חוויה חדשה עבורכם. נשמח לראותכם בקרוב.",
+    "assertions": [
+      {
+        "name": "status_200",
+        "passed": true,
+        "actual": "HTTP 200"
+      },
+      {
+        "name": "uses_https",
+        "passed": true,
+        "actual": "https://www.cayobar.com"
+      },
+      {
+        "name": "title_present",
+        "passed": true,
+        "actual": "CAYO | בקרוב"
+      },
+      {
+        "name": "title_contains_cayo",
+        "passed": true,
+        "actual": "CAYO | בקרוב"
+      },
+      {
+        "name": "lang_he",
+        "passed": true,
+        "actual": "he"
+      },
+      {
+        "name": "meta_description",
+        "passed": true,
+        "actual": "CAYO — מסעדה ובר. פתיחה בקרוב."
+      },
+      {
+        "name": "og_title",
+        "passed": true,
+        "actual": "CAYO | בר קוקטיילים"
+      },
+      {
+        "name": "og_image",
+        "passed": false,
+        "actual": "(missing)"
+      },
+      {
+        "name": "h1_present",
+        "passed": true,
+        "actual": "['CAYO']"
+      },
+      {
+        "name": "body_has_content",
+        "passed": true,
+        "actual": "77 chars"
+      },
+      {
+        "name": "response_under_3s",
+        "passed": true,
+        "actual": "313ms"
+      },
+      {
+        "name": "no_broken_images",
+        "passed": true,
+        "actual": "0 broken"
+      },
+      {
+        "name": "no_broken_links",
+        "passed": true,
+        "actual": "0 broken of 0 sampled"
+      }
+    ],
+    "image_status": [],
+    "broken_images": [],
+    "link_status": [],
+    "broken_links": []
+  },
+  "performance": {
+    "mobile": {
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    "desktop": {
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    }
+  },
+  "accessibility": {
+    "mobile": {
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    "desktop": {
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    }
+  },
+  "visual": {
+    "status": "skipped",
+    "reason": "PSI failed"
+  }
+}
