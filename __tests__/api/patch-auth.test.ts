@@ -46,14 +46,14 @@ describe('PATCH /api/reservations/[id] authorization branches', () => {
   describe('Capacity re-check on admin PATCH', () => {
     it('should detect date changes that re-occupy seats', () => {
       const didDateChange = true
-      const newStatus = 'confirmed'
+      const newStatus: string = 'confirmed'
       const shouldRecheck = didDateChange && (newStatus === 'pending' || newStatus === 'confirmed' || newStatus === 'arrived')
       expect(shouldRecheck).toBe(true)
     })
 
     it('should not recheck when status changes to cancelling state', () => {
       const didDateChange = false
-      const newStatus = 'cancelled'
+      const newStatus: string = 'cancelled'
       const shouldRecheck = didDateChange && (newStatus === 'pending' || newStatus === 'confirmed' || newStatus === 'arrived')
       expect(shouldRecheck).toBe(false)
     })

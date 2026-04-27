@@ -1,0 +1,19 @@
+# Normalize all text files to LF in the repository.
+# Windows checkouts can still work with CRLF locally — git converts on
+# checkout based on core.autocrlf. The important part is that the canonical
+# stored form is LF, so cross-OS edits stop showing up as whole-file diffs.
+* text=auto eol=lf
+
+# Belt-and-suspenders: force common binary types to be left untouched even
+# if `text=auto` ever guesses wrong on them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
