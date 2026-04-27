@@ -167,43 +167,6 @@ export default function MarkedDashboard() {
       </header>
 
       <main className="max-w-3xl mx-auto px-5 py-5">
-        {/* Summary strip */}
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <div className="bg-cayo-teal/5 border-2 border-cayo-teal/30 rounded-xl px-3 py-2.5">
-            <p className="text-[10px] font-bold text-cayo-teal/80 uppercase tracking-wider">
-              הגיעו
-            </p>
-            <p className="text-xl font-black mt-0.5 text-cayo-teal">
-              {arrived.length}
-            </p>
-            <p className="text-[11px] font-bold text-cayo-teal/70 mt-0.5 leading-tight">
-              הזמנות
-            </p>
-          </div>
-          <div className="bg-cayo-burgundy/5 border-2 border-cayo-burgundy/30 rounded-xl px-3 py-2.5">
-            <p className="text-[10px] font-bold text-cayo-burgundy/80 uppercase tracking-wider">
-              פינו
-            </p>
-            <p className="text-xl font-black mt-0.5 text-cayo-burgundy">
-              {completed.length}
-            </p>
-            <p className="text-[11px] font-bold text-cayo-burgundy/70 mt-0.5 leading-tight">
-              הזמנות
-            </p>
-          </div>
-          <div className="bg-black/[0.03] border-2 border-black/15 rounded-xl px-3 py-2.5">
-            <p className="text-[10px] font-bold text-black/60 uppercase tracking-wider">
-              לא הגיעו
-            </p>
-            <p className="text-xl font-black mt-0.5 text-black/70">
-              {noShow.length}
-            </p>
-            <p className="text-[11px] font-bold text-black/50 mt-0.5 leading-tight">
-              הזמנות
-            </p>
-          </div>
-        </div>
-
         {error && (
           <div className="mb-4 bg-cayo-red/5 border-2 border-cayo-red/30 rounded-xl p-3 text-center text-sm font-bold text-cayo-red">
             {error}
