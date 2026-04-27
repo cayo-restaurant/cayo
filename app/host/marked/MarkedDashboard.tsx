@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import cayoLogo from '../../../cayo_brand_page_005.png'
 import {
   AssignedTable,
@@ -20,15 +20,24 @@ import {
   ReservationDetailModal,
   ReservationRow,
   Status,
-  computeShiftDateStr,
   enrich,
   shiftAdjustedDate,
+  toDateString,
 } from '../shared'
 import { UndoToast, UndoToastState } from '../../../components/UndoToast'
 import TablePickerModal from '../../admin/components/TablePickerModal'
 
 export default function MarkedDashboard() {
   const router = useRouter()
+  // Read ?day=N from the URL so this page mirrors whatever day the host
+  // dashboard had selected when the user clicked "מסומנות". 0 = today.
+  const searchParams = useSearchParams()
+  const dayOffset = (() => {
+    const v = searchParams?.get('day')
+    if (!v) return 0
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) ? n : 0
+  })()
   const [items, setItems] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -52,7 +61,12 @@ export default function MarkedDashboard() {
         return
       }
       const data = await res.json()
-      const shiftDateStr = computeShiftDateStr(new Date())
+      // Honor the dayOffset from the URL — same shift-date math the host
+      // dashboard uses, so /host?day=-1 → /host/marked?day=-1 shows the
+      // same day's reservations on both pages.
+      const baseShiftDate = shiftAdjustedDate(new Date())
+      baseShiftDate.setDate(baseShiftDate.getDate() + dayOffset)
+      const shiftDateStr = toDateString(baseShiftDate)
       const todays = (data.reservations || []).filter(
         (r: Reservation) => r.date === shiftDateStr
       )
@@ -74,7 +88,7 @@ export default function MarkedDashboard() {
     }, 60_000)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickerFor])
+  }, [pickerFor, dayOffset])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000)
@@ -126,7 +140,9 @@ export default function MarkedDashboard() {
   const marked: Enriched[] = [...arrived, ...completed, ...noShow]
 
   const shiftDate = shiftAdjustedDate(new Date(now))
-  const todayLabel = `יום ${HEBREW_DAYS[shiftDate.getDay()]}, ${shiftDate.getDate()} ${HEBREW_MONTHS[shiftDate.getMonth()]}`
+  const selectedDate = new Date(shiftDate)
+  selectedDate.setDate(selectedDate.getDate() + dayOffset)
+  const todayLabel = `יום ${HEBREW_DAYS[selectedDate.getDay()]}, ${selectedDate.getDate()} ${HEBREW_MONTHS[selectedDate.getMonth()]}`
 
   return (
     <div className="min-h-screen bg-white pb-12">
@@ -142,7 +158,7 @@ export default function MarkedDashboard() {
             </div>
           </div>
           <Link
-            href="/host"
+            href={dayOffset === 0 ? '/host' : `/host?day=${dayOffset}`}
             className="text-sm font-bold text-cayo-burgundy/70 hover:text-cayo-burgundy px-3 py-1.5"
           >
             → חזרה
@@ -198,7 +214,7 @@ export default function MarkedDashboard() {
           <p className="text-center text-cayo-burgundy/50 py-16 font-bold">טוען...</p>
         ) : marked.length === 0 ? (
           <div className="py-16 text-center text-cayo-burgundy/40 font-bold border-2 border-dashed border-cayo-burgundy/20 rounded-2xl">
-            עדיין לא סומנו הזמנות היום
+            {dayOffset === 0 ? 'עדיין לא סומנו הזמנות היום' : 'לא סומנו הזמנות בתאריך זה'}
           </div>
         ) : (
           <>

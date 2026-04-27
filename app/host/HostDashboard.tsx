@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import cayoLogo from '../../cayo_brand_page_005.png'
 import {
   AssignedTable,
@@ -44,6 +44,16 @@ import { UndoToast, UndoToastState } from '../../components/UndoToast'
 
 export default function HostDashboard() {
   const router = useRouter()
+  // Read ?day=N from the URL so the day stays in sync with cross-page
+  // navigation (e.g. /host?day=-1 ↔ /host/marked?day=-1). Falls back to 0
+  // (today) when the param is missing or malformed.
+  const searchParams = useSearchParams()
+  const initialDayOffset = (() => {
+    const v = searchParams?.get('day')
+    if (!v) return 0
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) ? n : 0
+  })()
   const [items, setItems] = useState<Reservation[]>([])
   const [totalCapacity, setTotalCapacity] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +85,7 @@ export default function HostDashboard() {
   const [editingReservation, setEditingReservation] = useState<Enriched | null>(null)
   const [showNewReservation, setShowNewReservation] = useState(false)
   // Day navigation: 0 = today's shift, negative = past days, positive = future
-  const [dayOffset, setDayOffset] = useState(0)
+  const [dayOffset, setDayOffset] = useState(initialDayOffset)
   const [dayPickerOpen, setDayPickerOpen] = useState(false)
   // Calendar display month/year (independent of selected day so user can browse)
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
@@ -286,16 +296,16 @@ export default function HostDashboard() {
   const otherItems = enriched.filter(r => r.bucket === 'other')
 
   const byTimeAsc = (a: Enriched, b: Enriched) => a.time.localeCompare(b.time)
-  const byLateDesc = (a: Enriched, b: Enriched) => b.lateMinutes - a.lateMinutes
 
   // Active list — what the hostess needs to act on. Marked reservations
   // (arrived / no-show / completed-after-clear) live on /host/marked instead.
+  // Sorted strictly by time ascending so the earliest slot is always at the top.
   const activeList: Enriched[] = [
-    ...lateItems.sort(byLateDesc),
-    ...soonItems.sort(byTimeAsc),
-    ...upcomingItems.sort(byTimeAsc),
-    ...otherItems.sort(byTimeAsc),
-  ]
+    ...lateItems,
+    ...soonItems,
+    ...upcomingItems,
+    ...otherItems,
+  ].sort(byTimeAsc)
   const markedCount = arrivedItems.length + noShowItems.length + completedItems.length
 
   // Headline stat — total guests on the books today. Count only reservations
@@ -463,7 +473,7 @@ export default function HostDashboard() {
             </div>
           </div>
           <Link
-            href="/host/marked"
+            href={dayOffset === 0 ? '/host/marked' : `/host/marked?day=${dayOffset}`}
             className="bg-white border-2 border-cayo-burgundy/15 rounded-xl px-3 py-2.5 hover:border-cayo-burgundy/40 active:scale-[0.98] transition flex flex-col justify-center"
           >
             <p className="text-[10px] font-bold text-cayo-burgundy/75 uppercase tracking-wider">
@@ -825,3 +835,4 @@ function Stat({ label, value, sub }: { label: string; value: string; sub: string
     </div>
   )
 }
+
